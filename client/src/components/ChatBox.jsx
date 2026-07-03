@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import PropertyCard from './PropertyCard.jsx';
 import CompsTable from './CompsTable.jsx';
+import { detectCity } from '../utils/geolocation.js';
 
 const OVERVIEW_QUESTION = 'Give me a quick overview of this property — current status, price, and key details.';
+const AUTOCOMPLETE_MIN_LENGTH = 3;
+const AUTOCOMPLETE_DEBOUNCE_MS = 300;
 
 async function postJson(url, body) {
   const res = await fetch(url, {
@@ -29,11 +32,12 @@ function renderDisclaimer(text, url) {
   );
 }
 
+// Mosaic wordmark: navy circle, coral angular "M" mark. Brand colors: #1d3c68 / #f1645f / white.
 function Logo() {
   return (
     <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="28" height="28" rx="7" fill="#0d1b33" />
-      <path d="M14 6L22 12.5V22H17V16H11V22H6V12.5L14 6Z" fill="#d4af37" />
+      <circle cx="14" cy="14" r="14" fill="#1d3c68" />
+      <path d="M7 20V9L13 15L14 14L20 9V20" stroke="#f1645f" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </svg>
   );
 }
@@ -45,7 +49,10 @@ export default function ChatBox() {
   const [sending, setSending] = useState(false);
   const [disclaimer, setDisclaimer] = useState('');
   const [privacyUrl, setPrivacyUrl] = useState('');
+  const [city, setCity] = useState('Kitchener');
+  const [suggestions, setSuggestions] = useState([]);
   const logRef = useRef(null);
+  const debounceRef = useRef(null);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
@@ -61,15 +68,35 @@ export default function ChatBox() {
       .catch(() => {});
   }, []);
 
-  async function handleSend(e) {
-    e.preventDefault();
-    const text = input.trim();
+  // Optional — silently falls back to the default city on denial/error.
+  useEffect(() => {
+    detectCity().then(setCity);
+  }, []);
+
+  // Debounced address autocomplete, only relevant before a property is resolved.
+  useEffect(() => {
+    if (address || input.trim().length < AUTOCOMPLETE_MIN_LENGTH) {
+      setSuggestions([]);
+      return;
+    }
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetch(`/api/autocomplete?partial=${encodeURIComponent(input.trim())}&city=${encodeURIComponent(city)}`)
+        .then((res) => res.json())
+        .then((data) => setSuggestions(data.suggestions || []))
+        .catch(() => setSuggestions([]));
+    }, AUTOCOMPLETE_DEBOUNCE_MS);
+    return () => clearTimeout(debounceRef.current);
+  }, [input, address, city]);
+
+  async function sendMessage(text) {
     if (!text || sending) return;
 
     const isFirstTurn = !address;
     const userMessage = { id: crypto.randomUUID(), role: 'user', text };
     const history = messages.map((m) => ({ role: m.role, content: m.text }));
 
+    setSuggestions([]);
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setSending(true);
@@ -97,10 +124,20 @@ export default function ChatBox() {
     }
   }
 
+  function handleSubmit(e) {
+    e.preventDefault();
+    sendMessage(input.trim());
+  }
+
+  function handleSuggestionClick(suggestion) {
+    sendMessage(suggestion);
+  }
+
   function handleNewSearch() {
     setMessages([]);
     setAddress(null);
     setInput('');
+    setSuggestions([]);
   }
 
   return (
@@ -143,18 +180,30 @@ export default function ChatBox() {
         )}
       </div>
 
-      <form className="chatbox-input-row" onSubmit={handleSend}>
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={address ? 'Ask a follow-up question about this property…' : 'Enter a property address…'}
-          disabled={sending}
-        />
-        <button type="submit" disabled={sending || !input.trim()}>
-          Send
-        </button>
-      </form>
+      <div className="chatbox-input-wrap">
+        {suggestions.length > 0 && (
+          <ul className="autocomplete-list">
+            {suggestions.map((s) => (
+              <li key={s}>
+                <button type="button" onClick={() => handleSuggestionClick(s)}>{s}</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <form className="chatbox-input-row" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={address ? 'Ask a follow-up question about this property…' : 'Enter a property address…'}
+            disabled={sending}
+            autoComplete="off"
+          />
+          <button type="submit" disabled={sending || !input.trim()}>
+            Send
+          </button>
+        </form>
+      </div>
 
       {disclaimer && <footer className="chatbox-disclaimer">{renderDisclaimer(disclaimer, privacyUrl)}</footer>}
     </div>

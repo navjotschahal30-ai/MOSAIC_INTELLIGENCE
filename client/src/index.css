@@ -2,10 +2,10 @@
   color-scheme: light;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
-  --navy: #0d1b33;
-  --navy-dark: #071022;
-  --gold: #d4af37;
-  --gold-light: #e6c766;
+  --navy: #1d3c68;
+  --navy-dark: #142c4d;
+  --coral: #f1645f;
+  --coral-light: #f79490;
   --gray-bubble: #f1f2f4;
   --text-dark: #1b2233;
   --text-muted: #667085;
@@ -202,7 +202,7 @@ body {
   letter-spacing: 0.03em;
   font-weight: 700;
   background: var(--navy);
-  color: var(--gold-light);
+  color: var(--coral-light);
   padding: 0.2rem 0.5rem;
   border-radius: 999px;
 }
@@ -280,7 +280,47 @@ body {
   border-bottom: none;
 }
 
-/* ── Input row ──────────────────────────────────────────────────────── */
+/* ── Input row + autocomplete ───────────────────────────────────────── */
+
+.chatbox-input-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.autocomplete-list {
+  position: absolute;
+  bottom: 100%;
+  left: 1.25rem;
+  right: 1.25rem;
+  margin: 0 0 0.4rem;
+  padding: 0.35rem;
+  list-style: none;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(20, 30, 50, 0.12);
+  z-index: 5;
+}
+
+.autocomplete-list li + li {
+  margin-top: 0.15rem;
+}
+
+.autocomplete-list button {
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  background: transparent;
+  color: var(--text-dark);
+  font-size: 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.autocomplete-list button:hover {
+  background: var(--gray-bubble);
+}
 
 .chatbox-input-row {
   display: flex;
@@ -303,16 +343,16 @@ body {
 
 .chatbox-input-row input:focus {
   outline: none;
-  border-color: var(--gold);
-  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.18);
+  border-color: var(--coral);
+  box-shadow: 0 0 0 3px rgba(241, 100, 95, 0.18);
 }
 
 .chatbox-input-row button {
   padding: 0.7rem 1.4rem;
   border-radius: 999px;
-  border: 1.5px solid var(--gold);
+  border: 1.5px solid var(--coral);
   background: var(--navy);
-  color: var(--gold-light);
+  color: var(--coral-light);
   font-weight: 700;
   font-size: 0.92rem;
   cursor: pointer;
@@ -321,7 +361,7 @@ body {
 
 .chatbox-input-row button:hover:not(:disabled) {
   background: var(--navy-dark);
-  color: var(--gold);
+  color: var(--coral);
 }
 
 .chatbox-input-row button:disabled {
@@ -374,6 +414,11 @@ body {
 
   .chatbox-input-row button {
     padding: 0.7rem 1.1rem;
+  }
+
+  .autocomplete-list {
+    left: 0.75rem;
+    right: 0.75rem;
   }
 
   .chatbox-disclaimer {

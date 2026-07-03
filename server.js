@@ -7,6 +7,9 @@ import { fileURLToPath } from 'url';
 import propertySearchRoute from './routes/propertySearch.js';
 import compsRoute from './routes/comps.js';
 import chatRoute from './routes/chat.js';
+import disclaimerRoute from './routes/disclaimer.js';
+import geocodeRoute from './routes/geocode.js';
+import autocompleteRoute from './routes/autocomplete.js';
 
 dotenv.config();
 
@@ -29,6 +32,9 @@ app.get('/api/health', (req, res) => {
 app.use('/api/property-search', propertySearchRoute);
 app.use('/api/comps', compsRoute);
 app.use('/api/chat', chatRoute);
+app.use('/api/disclaimer', disclaimerRoute);
+app.use('/api/geocode', geocodeRoute);
+app.use('/api/autocomplete', autocompleteRoute);
 
 // Serve the built React frontend in production (npm run build → client/dist)
 const clientDist = path.join(__dirname, 'client', 'dist');
