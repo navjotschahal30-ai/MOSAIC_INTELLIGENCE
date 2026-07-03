@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { searchByAddress, getSoldComps } from '../core/vow-query.js';
 import { answerPropertyQuestion } from '../core/claude-analysis.js';
-import { filterClientData, filterRealtorData, generateDisclaimer, validateSolicitation } from '../core/compliance.js';
+import { filterClientData, filterRealtorData, validateSolicitation } from '../core/compliance.js';
 
 const router = Router();
 
@@ -28,7 +28,7 @@ router.post('/', async (req, res) => {
       ? filterRealtorData({ subject, comps: compsResult.comps })
       : filterClientData({ subject, comps: compsResult.comps });
 
-    const rawAnswer = await answerPropertyQuestion({
+    const answer = await answerPropertyQuestion({
       subject: filtered.subject,
       comps: filtered.comps,
       question: question.trim(),
@@ -36,15 +36,15 @@ router.post('/', async (req, res) => {
       userType,
     });
 
-    const solicitationCheck = validateSolicitation(rawAnswer);
-    const answer = `${rawAnswer}\n\n${generateDisclaimer()}`;
+    // Disclaimer is no longer appended per-message — the frontend shows it
+    // once, site-wide, via GET /api/disclaimer (see routes/disclaimer.js).
+    const solicitationCheck = validateSolicitation(answer);
 
     console.log('[compliance]', JSON.stringify({
       userType,
       address: address.trim(),
       solicitationCompliant: solicitationCheck.compliant,
       solicitationFlags: solicitationCheck.flags,
-      disclaimerAppended: true,
     }));
 
     res.json({ answer, subject: filtered.subject, comps: filtered.comps, userType });
