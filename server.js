@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -10,16 +11,26 @@ import chatRoute from './routes/chat.js';
 import disclaimerRoute from './routes/disclaimer.js';
 import geocodeRoute from './routes/geocode.js';
 import autocompleteRoute from './routes/autocomplete.js';
+import authRoute from './routes/auth.js';
 
 dotenv.config();
+
+// Express 4 doesn't catch rejected promises from async route handlers — a
+// missed try/catch anywhere becomes an unhandled rejection that crashes the
+// whole process by default in modern Node. Log instead of dying; a single
+// request should never take the server down.
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandledRejection]', err);
+});
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const corsOrigins = (process.env.CORS_ORIGINS || '*').split(',').map((o) => o.trim());
-app.use(cors({ origin: corsOrigins.includes('*') ? '*' : corsOrigins }));
+app.use(cors({ origin: corsOrigins.includes('*') ? '*' : corsOrigins, credentials: true }));
 app.use(express.json());
+app.use(cookieParser());
 
 app.get('/api/health', (req, res) => {
   res.json({
@@ -35,6 +46,7 @@ app.use('/api/chat', chatRoute);
 app.use('/api/disclaimer', disclaimerRoute);
 app.use('/api/geocode', geocodeRoute);
 app.use('/api/autocomplete', autocompleteRoute);
+app.use('/api/auth', authRoute);
 
 // Serve the built React frontend in production (npm run build → client/dist)
 const clientDist = path.join(__dirname, 'client', 'dist');

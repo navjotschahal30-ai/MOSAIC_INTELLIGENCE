@@ -11,6 +11,7 @@ async function postJson(url, body) {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify(body),
   });
   const data = await res.json();
@@ -42,7 +43,7 @@ function Logo() {
   );
 }
 
-export default function ChatBox() {
+export default function ChatBox({ user, onLogout }) {
   const [messages, setMessages] = useState([]);
   const [address, setAddress] = useState(null);
   const [input, setInput] = useState('');
@@ -147,11 +148,19 @@ export default function ChatBox() {
           <Logo />
           <span>Mosaic Real Estate Intelligence</span>
         </div>
-        {address && (
-          <button type="button" className="new-search-btn" onClick={handleNewSearch}>
-            New search
-          </button>
-        )}
+        <div className="chatbox-header-actions">
+          {address && (
+            <button type="button" className="new-search-btn" onClick={handleNewSearch}>
+              New search
+            </button>
+          )}
+          {user && (
+            <span className="user-menu">
+              <span className="user-email">{user.email}</span>
+              <button type="button" className="logout-btn" onClick={onLogout}>Log out</button>
+            </span>
+          )}
+        </div>
       </header>
 
       <div className="chatbox-log" ref={logRef}>
