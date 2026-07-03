@@ -13,6 +13,7 @@ import geocodeRoute from './routes/geocode.js';
 import autocompleteRoute from './routes/autocomplete.js';
 import authRoute from './routes/auth.js';
 import { pool, testConnection } from './db/pool.js';
+import { runMigration } from './db/migrate.js';
 
 dotenv.config();
 
@@ -70,9 +71,20 @@ app.get(/^(?!\/api).*/, (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`[SERVER] Mosaic Real Estate Intelligence listening on port ${PORT}`);
   console.log('[SERVER] VOW_API_KEY present:', !!process.env.VOW_API_KEY);
   console.log('[SERVER] CLAUDE_API_KEY present:', !!process.env.CLAUDE_API_KEY);
-  testConnection();
+  await testConnection();
+
+  // Idempotent (CREATE TABLE IF NOT EXISTS) — safe to run on every boot, and
+  // the only practical way to apply schema changes on Railway without
+  // dashboard/CLI access to run `npm run migrate` there directly.
+  if (process.env.DATABASE_URL) {
+    try {
+      await runMigration();
+    } catch (err) {
+      console.error('[migrate] failed on startup:', err.message);
+    }
+  }
 });
