@@ -10,9 +10,9 @@ const AMPRE_URL = 'https://query.ampre.ca/odata/Property';
 const DETAIL_SELECT = [
   'ListingKey', 'UnparsedAddress', 'City', 'StateOrProvince', 'PostalCode',
   'Latitude', 'Longitude', 'StandardStatus', 'TransactionType',
-  'ListPrice', 'ClosePrice', 'CloseDate', 'ListDate', 'DaysOnMarket',
+  'ListPrice', 'ClosePrice', 'CloseDate', 'DaysOnMarket',
   'BedroomsTotal', 'BathroomsTotalInteger', 'BuildingAreaTotal',
-  'LotDepth', 'LotFrontage', 'PropertySubType', 'PropertyType',
+  'LotDepth', 'YearBuilt', 'PropertySubType', 'PropertyType',
   'PublicRemarks',
 ].join(',');
 
@@ -39,10 +39,15 @@ async function queryAmpre(filter, select, opts = {}) {
   const vowApiKey = assertApiKey();
   const { top = 25, orderby } = opts;
 
-  const params = new URLSearchParams({ $filter: filter, $top: String(top), $select: select });
-  if (orderby) params.set('$orderby', orderby);
+  // Ampre's OData parser rejects '+'-encoded spaces (what URLSearchParams produces) —
+  // it needs %20, so build the query string manually with encodeURIComponent.
+  const params = { $filter: filter, $top: String(top), $select: select };
+  if (orderby) params.$orderby = orderby;
+  const queryString = Object.entries(params)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&');
 
-  const url = `${AMPRE_URL}?${params.toString()}`;
+  const url = `${AMPRE_URL}?${queryString}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${vowApiKey}` } });
   const text = await res.text();
 
@@ -83,13 +88,12 @@ function normalizeProperty(l) {
     listPrice: Number(l.ListPrice) || null,
     closePrice: l.ClosePrice != null ? Number(l.ClosePrice) : null,
     closeDate: l.CloseDate || null,
-    listDate: l.ListDate || null,
     daysOnMarket: l.DaysOnMarket ?? null,
     beds: l.BedroomsTotal != null ? Math.round(l.BedroomsTotal) : null,
     baths: l.BathroomsTotalInteger != null ? Math.round(l.BathroomsTotalInteger) : null,
     sqft: l.BuildingAreaTotal != null ? Math.round(l.BuildingAreaTotal) : null,
     lotDepth: l.LotDepth ?? null,
-    lotFrontage: l.LotFrontage ?? null,
+    yearBuilt: l.YearBuilt ?? null,
     propertySubType: l.PropertySubType || null,
     propertyType: l.PropertyType || null,
     remarks: l.PublicRemarks || null,
