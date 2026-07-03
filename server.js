@@ -12,6 +12,7 @@ import disclaimerRoute from './routes/disclaimer.js';
 import geocodeRoute from './routes/geocode.js';
 import autocompleteRoute from './routes/autocomplete.js';
 import authRoute from './routes/auth.js';
+import { pool, testConnection } from './db/pool.js';
 
 dotenv.config();
 
@@ -32,11 +33,23 @@ app.use(cors({ origin: corsOrigins.includes('*') ? '*' : corsOrigins, credential
 app.use(express.json());
 app.use(cookieParser());
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  let databaseConnected = false;
+  if (process.env.DATABASE_URL) {
+    try {
+      await pool.query('SELECT 1');
+      databaseConnected = true;
+    } catch {
+      databaseConnected = false;
+    }
+  }
+
   res.json({
     ok: true,
     vowConfigured: !!process.env.VOW_API_KEY,
     claudeConfigured: !!process.env.CLAUDE_API_KEY,
+    databaseConfigured: !!process.env.DATABASE_URL,
+    databaseConnected,
   });
 });
 
@@ -61,4 +74,5 @@ app.listen(PORT, () => {
   console.log(`[SERVER] Mosaic Real Estate Intelligence listening on port ${PORT}`);
   console.log('[SERVER] VOW_API_KEY present:', !!process.env.VOW_API_KEY);
   console.log('[SERVER] CLAUDE_API_KEY present:', !!process.env.CLAUDE_API_KEY);
+  testConnection();
 });

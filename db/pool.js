@@ -16,3 +16,14 @@ export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
 });
+
+/** Verifies the database is actually reachable and logs the result. Never throws. */
+export async function testConnection() {
+  if (!process.env.DATABASE_URL) return;
+  try {
+    await pool.query('SELECT 1');
+    console.log('[db] Connected to Postgres.');
+  } catch (err) {
+    console.error('[db] Connection failed:', err.message);
+  }
+}
