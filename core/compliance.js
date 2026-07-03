@@ -11,6 +11,10 @@
 // restricted. Deliberately broader than what core/vow-query.js currently
 // selects, so any future field addition (owner name, private remarks, agent
 // contact) is stripped by default rather than opt-in.
+//
+// `brokerage` (the listing brokerage/ListOfficeName) must NEVER be added
+// here — MLS attribution rules require it to always be shown, for both
+// tiers. See ensureBrokerage() below, which re-asserts it regardless.
 const CLIENT_STRIP_FIELDS = [
   'ownerName', 'sellerName', 'privateRemarks', 'agentRemarks',
   'showingInstructions', 'showingHistory', 'showingRequirements',
@@ -26,33 +30,58 @@ function stripFields(obj, fields) {
   return clone;
 }
 
+// MLS/VOW attribution rules require the listing brokerage to always be shown
+// alongside listing data. This re-asserts `brokerage` on the object (immune
+// to any future CLIENT_STRIP_FIELDS mistake) and flags when it's missing
+// from the source data so callers/Claude know not to fabricate it.
+function ensureBrokerage(obj) {
+  if (!obj) return obj;
+  const brokerage = obj.brokerage || null;
+  return brokerage
+    ? { ...obj, brokerage }
+    : { ...obj, brokerage: null, brokerageMissing: true };
+}
+
 /**
  * Client-tier view: strips seller/agent identity, private remarks, and showing
  * history. Public property details (including marketing description) pass through.
+ * The listing brokerage is always included (see ensureBrokerage).
  * @param {{ subject: Object|null, comps: Array<Object> }} data
  * @returns {{ subject: Object|null, comps: Array<Object> }}
  */
 export function filterClientData({ subject, comps }) {
   return {
-    subject: stripFields(subject, CLIENT_STRIP_FIELDS),
-    comps: (comps || []).map((c) => stripFields(c, CLIENT_STRIP_FIELDS)),
+    subject: ensureBrokerage(stripFields(subject, CLIENT_STRIP_FIELDS)),
+    comps: (comps || []).map((c) => ensureBrokerage(stripFields(c, CLIENT_STRIP_FIELDS))),
   };
 }
 
 /**
- * Realtor-tier view: full, unfiltered data access.
+ * Realtor-tier view: full, unfiltered data access. The listing brokerage is
+ * always included (see ensureBrokerage).
  * @param {{ subject: Object|null, comps: Array<Object> }} data
  * @returns {{ subject: Object|null, comps: Array<Object> }}
  */
 export function filterRealtorData({ subject, comps }) {
-  return { subject, comps: comps || [] };
+  return {
+    subject: ensureBrokerage(subject),
+    comps: (comps || []).map(ensureBrokerage),
+  };
 }
 
-const STANDARD_DISCLAIMER = 'This information is generated from MLS data via the Ampre VOW feed and is provided for general informational purposes only. It is not a formal appraisal, Comparative Market Analysis (CMA), or legal, financial, or tax advice. Data accuracy is not guaranteed — verify all details with your REALTOR® before making decisions. E&OE.';
+const STANDARD_DISCLAIMER = 'This information is sourced from TRREB MLS data and provided for general informational purposes only. It is not a formal appraisal, CMA, or professional advice. See our privacy policy for details.';
 
-/** @returns {string} the standard disclaimer appended to every chat response. */
+// Placeholder destination — the page may not exist yet.
+const PRIVACY_POLICY_URL = 'https://navjotchahal.ca/privacy';
+
+/** @returns {string} the standard disclaimer shown once, site-wide (see routes/disclaimer.js). */
 export function generateDisclaimer() {
   return STANDARD_DISCLAIMER;
+}
+
+/** @returns {string} the privacy policy URL referenced by the disclaimer. */
+export function getPrivacyPolicyUrl() {
+  return PRIVACY_POLICY_URL;
 }
 
 // Heuristic, keyword/pattern based — not a substitute for legal review.
