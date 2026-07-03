@@ -22,7 +22,11 @@ You answer questions about a specific subject property using only the MLS data p
 - If the data needed to answer isn't in [PROPERTY DATA], say so plainly and suggest what info would help.
 - When asked about value or pricing, reason from the sold comparables (ClosePrice, CloseDate, beds/baths/sqft) rather than giving a bare guess.
 
+## Ask a clarifying question when it would sharpen the answer
+The user is very often physically at the property while using this — walking through a showing, standing in the basement, looking at the roof. That means you can ask them things the MLS remarks don't cover or might be stale on. When something material to the valuation is ambiguous or missing from the data (e.g. whether a basement is actually finished, the real condition of a renovation the remarks only vaguely describe, whether a "legal duplex" claim looks accurate in person), ask ONE short, focused question before finalizing your answer — multiple-choice is often clearest (e.g. "Is the basement finished? A) Fully finished B) Unfinished C) Partially finished"). Don't ask when the data already answers it, and don't stack more than one question in a single reply.
+
 ## Compliance guardrails — do not violate these
+- Always include the listing brokerage name when displaying property details — e.g. "123 Main Street, Kitchener — Listed by [Brokerage Name]." Do this the first time you mention a property in your response. If the data shows the brokerage as missing (BrokerageMissing in the data block), say brokerage information isn't available for this listing — never guess or invent a brokerage name.
 - Property details are fine to share freely with clients: price history, sold prices and dates, days on market, beds/baths/sqft, and the public marketing description. Only seller/agent identity, private (non-public) remarks, and showing history are restricted — and those are already stripped from the data you're given under [ACCESS TIER: client]. Don't withhold public property details out of over-caution.
 - Never disclose seller identity, seller contact information, or private/internal remarks — under [ACCESS TIER: client] these fields have already been stripped from the data; do not speculate about or attempt to reconstruct them.
 - Never state or estimate commission amounts, splits, or fees. If asked, say commission is set by contract between the parties and to consult the listing brokerage.
@@ -45,6 +49,7 @@ function formatProperty(p) {
   if (!p) return 'No subject property data available.';
   return [
     `Address: ${p.address}${p.city ? `, ${p.city}` : ''}`,
+    `Listing Brokerage: ${p.brokerage || 'MISSING — do not guess or omit; tell the user brokerage info is unavailable for this listing'}`,
     `Status: ${p.status || 'n/a'}`,
     `List price: ${formatMoney(p.listPrice)}`,
     p.closePrice ? `Sold price: ${formatMoney(p.closePrice)} (closed ${p.closeDate})` : null,
@@ -58,7 +63,7 @@ function formatProperty(p) {
 function formatComps(comps) {
   if (!comps || comps.length === 0) return 'No sold comparables available.';
   return comps
-    .map((c) => `- ${c.address}${c.city ? `, ${c.city}` : ''} | ${formatMoney(c.closePrice)} | closed ${c.closeDate} | ${c.beds ?? '?'}bd/${c.baths ?? '?'}ba | ${c.sqft ?? '?'} sqft`)
+    .map((c) => `- ${c.address}${c.city ? `, ${c.city}` : ''} | ${formatMoney(c.closePrice)} | pending/sold ${c.pendingDate || c.closeDate || 'n/a'} | ${c.beds ?? '?'}bd/${c.baths ?? '?'}ba | size ${c.livingAreaRange || c.sqft || '?'} | age ${c.approxAge || '?'} | Brokerage: ${c.brokerage || 'MISSING'}${c.curationNote ? ` | Note: ${c.curationNote}` : ''}`)
     .join('\n');
 }
 
@@ -85,4 +90,81 @@ export async function answerPropertyQuestion({ subject, comps, question, history
   });
 
   return response.content[0]?.text?.trim() || "I couldn't generate an answer for that — try rephrasing the question.";
+}
+
+function curationSystemPrompt(limit) {
+  return `You are a real estate comp analyst. You're given a subject property and a pool of structurally-similar closed sales (already filtered by neighbourhood, property type/subtype, and roughly matching size/age/beds/baths). Your job is to read each one's remarks — the free-text marketing description — and judge which are genuinely comparable, the way an experienced agent would when hand-picking comps.
+
+Look for meaningful mismatches the structural filters can't catch: a fully renovated subject vs. a "sold as-is, needs full gut reno" comp; a legal duplex/income suite the comps don't have (or vice versa); a comp described as a teardown, fixer-upper, or having major deferred maintenance; a subject with a finished walkout basement vs. comps that are unfinished; waterfront/ravine/conservation lots vs. standard lots; custom-built vs. builder-standard. Also weigh occupant type, parking, and kitchen count where the remarks or data reveal something structurally relevant (e.g. a legal second unit implying 2 kitchens).
+
+Rank the candidates best-to-worst as real comps for this specific subject. Exclude any that are poor comps due to a meaningful mismatch you can identify from the remarks — but don't exclude just because a comp isn't a perfect match; some deviation is expected and normal, since these are meant to be REAL comps not clones. Keep at least one comp if any reasonable one exists, even if imperfect — only return zero if truly nothing in the pool is defensible as a comp.
+
+Return ONLY valid JSON, no other text, in this exact shape:
+{"selected": [{"id": "<candidate id>", "note": "<one short phrase — why it's a fair comp, or what to weigh, e.g. 'similar size/age, fully renovated kitchen matches subject'>"}]}
+
+Order "selected" best comp first. Include at most ${limit} entries.`;
+}
+
+/**
+ * Read remarks on a candidate comp pool and select/rank the best ones as real
+ * comps for the subject, the way an experienced agent would — catching
+ * mismatches (renovation status, legal suites, lot character) that structural
+ * filters (size/age/beds/baths buckets) can't see.
+ * @param {{ subject: Object, candidates: Array<Object>, limit: number }} params
+ * @returns {Promise<Array<Object>>} the selected comps (subset/reorder of candidates), each with a `curationNote` field, capped at `limit`
+ */
+export async function curateComps({ subject, candidates, limit }) {
+  if (!candidates || candidates.length === 0) return [];
+
+  const subjectBlock = [
+    `Address: ${subject.address}`,
+    `Beds/Baths: ${subject.beds ?? 'n/a'} / ${subject.baths ?? 'n/a'}`,
+    `Size range: ${subject.livingAreaRange || 'n/a'}`,
+    `Age range: ${subject.approxAge || 'n/a'}`,
+    `Occupant type: ${subject.occupantType || 'n/a'}`,
+    `Parking (garage/drive/total): ${subject.garageParkingSpaces ?? 'n/a'} / ${subject.driveParkingSpaces ?? 'n/a'} / ${subject.totalParkingSpaces ?? 'n/a'}`,
+    `Kitchens: ${subject.kitchensTotal ?? 'n/a'}`,
+    `Remarks: ${subject.remarks || 'none available'}`,
+  ].join('\n');
+
+  const candidatesBlock = candidates.map((c) => [
+    `id: ${c.id}`,
+    `Address: ${c.address}`,
+    `Sold: ${formatMoney(c.closePrice)}, pending ${c.pendingDate || c.closeDate || 'n/a'}`,
+    `Beds/Baths: ${c.beds ?? 'n/a'} / ${c.baths ?? 'n/a'}`,
+    `Size range: ${c.livingAreaRange || 'n/a'}`,
+    `Age range: ${c.approxAge || 'n/a'}`,
+    `Occupant type: ${c.occupantType || 'n/a'}`,
+    `Parking (garage/drive/total): ${c.garageParkingSpaces ?? 'n/a'} / ${c.driveParkingSpaces ?? 'n/a'} / ${c.totalParkingSpaces ?? 'n/a'}`,
+    `Kitchens: ${c.kitchensTotal ?? 'n/a'}`,
+    `Remarks: ${c.remarks || 'none available'}`,
+  ].join('\n')).join('\n\n');
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 1200,
+    system: curationSystemPrompt(limit),
+    messages: [{ role: 'user', content: `SUBJECT:\n${subjectBlock}\n\nCANDIDATES:\n\n${candidatesBlock}` }],
+  });
+
+  const raw = response.content[0]?.text?.trim() || '{"selected":[]}';
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.replace(/```json\n?|\n?```/g, '').trim());
+  } catch {
+    // Curation is a refinement step, not the source of truth — if parsing
+    // fails, fall back to the structural pool rather than losing all comps.
+    return candidates.slice(0, limit);
+  }
+
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  const selected = (parsed.selected || [])
+    .map((s) => {
+      const comp = byId.get(s.id);
+      return comp ? { ...comp, curationNote: s.note || null } : null;
+    })
+    .filter(Boolean)
+    .slice(0, limit);
+
+  return selected.length > 0 ? selected : candidates.slice(0, limit);
 }

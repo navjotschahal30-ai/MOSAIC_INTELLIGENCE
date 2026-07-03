@@ -1,9 +1,20 @@
 import { Router } from 'express';
 import { searchByAddress, getSoldComps } from '../core/vow-query.js';
-import { answerPropertyQuestion } from '../core/claude-analysis.js';
+import { answerPropertyQuestion, curateComps } from '../core/claude-analysis.js';
 import { filterClientData, filterRealtorData, validateSolicitation } from '../core/compliance.js';
 
+const COMP_LIMIT = 5;
+
 const router = Router();
+
+function formatDisambiguationQuestion(candidates) {
+  const addresses = candidates.map((c) => c.address);
+  const last = addresses[addresses.length - 1];
+  const joined = addresses.length > 1
+    ? `${addresses.slice(0, -1).join(', ')} or ${last}`
+    : last;
+  return `Did you mean ${joined}?`;
+}
 
 // POST /api/chat  { address: string, question: string, history?: Array<{role, content}>, userType?: 'client'|'realtor' }
 router.post('/', async (req, res) => {
@@ -19,14 +30,26 @@ router.post('/', async (req, res) => {
   const userType = rawUserType === 'realtor' ? 'realtor' : 'client';
 
   try {
-    const [subject, compsResult] = await Promise.all([
-      searchByAddress(address.trim()),
-      getSoldComps(address.trim()),
-    ]);
+    const searchResult = await searchByAddress(address.trim());
+
+    if (searchResult.status === 'ambiguous') {
+      return res.json({
+        answer: formatDisambiguationQuestion(searchResult.candidates),
+        ambiguous: true,
+        candidates: searchResult.candidates,
+        userType,
+      });
+    }
+
+    const subject = searchResult.status === 'found' ? searchResult.property : null;
+    const compsResult = await getSoldComps(subject, { limit: COMP_LIMIT });
+    const curatedComps = subject
+      ? await curateComps({ subject, candidates: compsResult.comps, limit: COMP_LIMIT })
+      : [];
 
     const filtered = userType === 'realtor'
-      ? filterRealtorData({ subject, comps: compsResult.comps })
-      : filterClientData({ subject, comps: compsResult.comps });
+      ? filterRealtorData({ subject, comps: curatedComps })
+      : filterClientData({ subject, comps: curatedComps });
 
     const answer = await answerPropertyQuestion({
       subject: filtered.subject,

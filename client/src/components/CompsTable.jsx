@@ -20,7 +20,7 @@ export default function CompsTable({ comps }) {
             <tr>
               <th>Address</th>
               <th>Sold</th>
-              <th>Closed</th>
+              <th>Pending/Sold</th>
               <th>Bd/Ba</th>
               <th>Sqft</th>
             </tr>
@@ -30,7 +30,7 @@ export default function CompsTable({ comps }) {
               <tr key={c.id}>
                 <td>{streetOnly(c.address)}</td>
                 <td>{money(c.closePrice)}</td>
-                <td>{c.closeDate || '—'}</td>
+                <td>{c.pendingDate || c.closeDate || '—'}</td>
                 <td>{c.beds ?? '—'}/{c.baths ?? '—'}</td>
                 <td>{c.sqft ?? '—'}</td>
               </tr>

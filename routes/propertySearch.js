@@ -11,9 +11,15 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const property = await searchByAddress(address.trim());
-    if (!property) return res.status(404).json({ error: 'No property found for that address' });
-    res.json({ property });
+    const result = await searchByAddress(address.trim());
+
+    if (result.status === 'not_found') {
+      return res.status(404).json({ error: 'No property found for that address' });
+    }
+    if (result.status === 'ambiguous') {
+      return res.json({ ambiguous: true, candidates: result.candidates });
+    }
+    res.json({ property: result.property });
   } catch (err) {
     console.error('[property-search] error:', err.message);
     res.status(502).json({ error: 'Property lookup failed', detail: err.message });
