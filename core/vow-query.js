@@ -16,9 +16,24 @@ const DETAIL_SELECT = [
   'Latitude', 'Longitude', 'StandardStatus', 'TransactionType',
   'ListPrice', 'ClosePrice', 'CloseDate', 'DaysOnMarket',
   'BedroomsTotal', 'BathroomsTotalInteger', 'BuildingAreaTotal', 'LivingAreaRange',
-  'LotDepth', 'LotSizeRangeAcres', 'YearBuilt', 'ApproximateAge',
+  'LotWidth', 'LotDepth', 'LotSizeArea', 'LotSizeUnits', 'LotSizeRangeAcres', 'LotFeatures', 'LotShape',
+  'YearBuilt', 'ApproximateAge',
   'PropertySubType', 'PropertyType', 'OccupantType',
-  'GarageParkingSpaces', 'ParkingSpaces', 'ParkingTotal', 'KitchensTotal',
+  'GarageParkingSpaces', 'ParkingSpaces', 'ParkingTotal', 'ParkingFeatures', 'KitchensTotal',
+  // Construction & systems — RESO Data Dictionary fields confirmed against the
+  // live Ampre $metadata (Roof/Basement/Cooling etc. are Collection(Edm.String)
+  // and joined into comma lists by normalizeProperty).
+  'Roof', 'Basement', 'BasementYN', 'FoundationDetails', 'ConstructionMaterials', 'ExteriorFeatures',
+  'HeatType', 'HeatSource', 'Cooling', 'Sewer', 'Water', 'WaterSource', 'Utilities', 'UFFI',
+  'FireplaceYN', 'FireplacesTotal', 'PoolFeatures', 'WaterfrontYN',
+  // Financial — condo fees, taxes.
+  'TaxAnnualAmount', 'TaxYear', 'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes',
+  // Chattels/rentals — TRREB's Inclusions/Exclusions/RentalItems fields are
+  // distinct from PublicRemarks and were previously never fetched, so
+  // questions about them fell through to "not in the data."
+  'Inclusions', 'Exclusions', 'RentalItems', 'RentalItemsMonthlyCost', 'PublicRemarksExtras',
+  // Possession, zoning, condo unit identifiers.
+  'PossessionDate', 'PossessionType', 'Zoning', 'CondoCorpNumber', 'ApartmentNumber', 'UnitNumber', 'Locker', 'LockerNumber',
   'PublicRemarks', 'ListOfficeName',
 ].join(',');
 
@@ -93,6 +108,12 @@ function escapeODataString(value) {
   return value.replace(/'/g, "''");
 }
 
+// RESO Collection(Edm.String) fields (e.g. Roof, Basement, Cooling) come back
+// as arrays — joined into a comma list since Claude and the UI only need text.
+function joinList(arr) {
+  return Array.isArray(arr) && arr.length > 0 ? arr.join(', ') : null;
+}
+
 function normalizeProperty(l) {
   return {
     id: String(l.ListingKey ?? ''),
@@ -113,8 +134,13 @@ function normalizeProperty(l) {
     baths: l.BathroomsTotalInteger != null ? Math.round(l.BathroomsTotalInteger) : null,
     sqft: l.BuildingAreaTotal != null ? Math.round(l.BuildingAreaTotal) : null,
     livingAreaRange: l.LivingAreaRange || null,
+    lotWidth: l.LotWidth ?? null,
     lotDepth: l.LotDepth ?? null,
+    lotSizeArea: l.LotSizeArea ?? null,
+    lotSizeUnits: l.LotSizeUnits || null,
     lotSizeRangeAcres: l.LotSizeRangeAcres || null,
+    lotFeatures: joinList(l.LotFeatures),
+    lotShape: l.LotShape || null,
     yearBuilt: l.YearBuilt ?? null,
     approxAge: l.ApproximateAge || null,
     propertySubType: l.PropertySubType || null,
@@ -123,7 +149,47 @@ function normalizeProperty(l) {
     garageParkingSpaces: l.GarageParkingSpaces || null,
     driveParkingSpaces: l.ParkingSpaces ?? null,
     totalParkingSpaces: l.ParkingTotal ?? null,
+    parkingFeatures: joinList(l.ParkingFeatures),
     kitchensTotal: l.KitchensTotal ?? null,
+    // Construction & systems
+    roof: joinList(l.Roof),
+    basement: joinList(l.Basement),
+    basementFinished: l.BasementYN ?? null,
+    foundationDetails: joinList(l.FoundationDetails),
+    constructionMaterials: joinList(l.ConstructionMaterials),
+    exteriorFeatures: joinList(l.ExteriorFeatures),
+    heatType: l.HeatType || null,
+    heatSource: l.HeatSource || null,
+    cooling: joinList(l.Cooling),
+    sewer: joinList(l.Sewer),
+    water: l.Water || null,
+    waterSource: joinList(l.WaterSource),
+    utilities: joinList(l.Utilities),
+    uffi: l.UFFI || null,
+    fireplace: l.FireplaceYN ?? null,
+    fireplacesTotal: l.FireplacesTotal ?? null,
+    poolFeatures: joinList(l.PoolFeatures),
+    waterfront: l.WaterfrontYN ?? null,
+    // Financial
+    taxAnnualAmount: l.TaxAnnualAmount != null ? Number(l.TaxAnnualAmount) : null,
+    taxYear: l.TaxYear ?? null,
+    condoFee: l.AssociationFee != null ? Number(l.AssociationFee) : null,
+    condoFeeFrequency: l.AssociationFeeFrequency || null,
+    condoFeeIncludes: joinList(l.AssociationFeeIncludes),
+    // Chattels / rentals — distinct MLS fields from the free-text remarks.
+    inclusions: l.Inclusions || null,
+    exclusions: l.Exclusions || null,
+    rentalItems: l.RentalItems || null,
+    rentalItemsMonthlyCost: l.RentalItemsMonthlyCost || null,
+    remarksExtras: l.PublicRemarksExtras || null,
+    // Possession, zoning, condo unit identifiers
+    possessionDate: l.PossessionDate || null,
+    possessionType: l.PossessionType || null,
+    zoning: l.Zoning || null,
+    condoCorpNumber: l.CondoCorpNumber ?? null,
+    unitNumber: l.ApartmentNumber || l.UnitNumber || null,
+    locker: l.Locker || null,
+    lockerNumber: l.LockerNumber || null,
     remarks: l.PublicRemarks || null,
     brokerage: l.ListOfficeName || null,
   };

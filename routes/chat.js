@@ -5,6 +5,12 @@ import { filterClientData, filterRealtorData, validateSolicitation } from '../co
 
 const COMP_LIMIT = 5;
 
+// Comps are recomputed every turn to keep the assistant's grounding data
+// current, but the table should only (re)render in the UI on the first turn
+// or when the user is actually asking/refining around comps — not on every
+// unrelated follow-up question.
+const COMPS_INTENT_RE = /\b(comps?|comparables?|comparable sales?|sold (price|homes?|properties)|similar (home|propert|listing|sale)|other (listing|propert|sale|home)s?)\b/i;
+
 const router = Router();
 
 function formatDisambiguationQuestion(candidates) {
@@ -70,7 +76,15 @@ router.post('/', async (req, res) => {
       solicitationFlags: solicitationCheck.flags,
     }));
 
-    res.json({ answer, subject: filtered.subject, comps: filtered.comps, userType });
+    const isFirstTurn = !Array.isArray(history) || history.length === 0;
+    const showComps = isFirstTurn || COMPS_INTENT_RE.test(question);
+
+    res.json({
+      answer,
+      subject: isFirstTurn ? filtered.subject : undefined,
+      comps: showComps ? filtered.comps : undefined,
+      userType,
+    });
   } catch (err) {
     console.error('[chat] error:', err.message);
     res.status(502).json({ error: 'Chat request failed', detail: err.message });
