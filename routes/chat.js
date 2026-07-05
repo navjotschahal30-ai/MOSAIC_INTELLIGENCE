@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { searchByAddress, getSoldComps } from '../core/vow-query.js';
+import { searchByAddressDdf } from '../core/ddf-query.js';
 import { answerPropertyQuestion, curateComps } from '../core/claude-analysis.js';
 import { filterClientData, filterRealtorData, validateSolicitation } from '../core/compliance.js';
 
@@ -36,7 +37,18 @@ router.post('/', async (req, res) => {
   const userType = rawUserType === 'realtor' ? 'realtor' : 'client';
 
   try {
-    const searchResult = await searchByAddress(address.trim());
+    let searchResult = await searchByAddress(address.trim());
+
+    // Fall back to CREA's DDF (nationwide, active-only) when VOW comes up
+    // empty — covers boards we don't have Cornerstone/Ampre approval for yet.
+    if (searchResult.status === 'not_found') {
+      try {
+        const ddfResult = await searchByAddressDdf(address.trim());
+        if (ddfResult.status !== 'not_found') searchResult = ddfResult;
+      } catch (err) {
+        console.error('[chat] DDF fallback failed:', err.message);
+      }
+    }
 
     if (searchResult.status === 'ambiguous') {
       return res.json({

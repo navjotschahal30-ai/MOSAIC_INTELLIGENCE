@@ -71,6 +71,18 @@ The system prompt instructs Claude that if a power-of-sale, estate, or court-ord
 
 Every `/api/chat` call logs a structured line via `console.log('[compliance]', ...)` with `userType`, the searched address, `solicitationCompliant`, and `solicitationFlags`. This is process-log-only today (stdout), not a persisted audit trail — see gaps.
 
+### 3.10 DDF fallback data source
+
+`routes/chat.js` tries `searchByAddress` (Ampre/VOW) first. Only when that comes back `not_found` does it fall back to `searchByAddressDdf` (`core/ddf-query.js`), which queries CREA's national DDF feed (`ddfapi.realtor.ca`, OAuth2 client-credentials against `identity.crea.ca`) — this covers boards Mosaic doesn't have VOW/Cornerstone approval for yet. The fallback is wrapped in its own try/catch so a DDF outage or missing credentials silently preserves the existing `not_found` behavior rather than turning into a 502.
+
+Important asymmetries with the primary VOW feed, confirmed against DDF's live `$metadata`:
+
+- **DDF carries no sold/closed data at all** — no `ClosePrice`, `CloseDate`, or `PurchaseContractDate` field exists in its Property entity. Sold comparables always come from `getSoldComps` (VOW-only), regardless of which feed the subject came from — this was a deliberate decision, not a gap to close later.
+- **DDF's field set is narrower than VOW's `DETAIL_SELECT`.** Fields with no DDF equivalent (`Exclusions`, `RentalItems`/`RentalItemsMonthlyCost`, `PossessionDate`/`PossessionType`, `CondoCorpNumber`, `Locker`/`LockerNumber`, `LivingAreaRange`, `ApproximateAge`, split `HeatType`/`HeatSource`, and more) are left `null` by `normalizeDdfProperty`, and `formatProperty` appends an explicit note telling Claude these are genuinely absent for DDF-sourced listings rather than something to guess at.
+- **Brokerage name is not available.** DDF's Property entity only exposes `ListOfficeKey` (an internal ID), not the office name — resolving that would need a separate `Office` entity lookup, not implemented. `ensureBrokerage()` in `core/compliance.js` correctly reports this as missing (`brokerageMissing: true`) rather than fabricating a name, same as any other VOW listing with an absent brokerage.
+- **`PropertySubType` vocabulary may not match between feeds.** `getSoldComps` hard-filters sold comps by `PropertySubType` (never relaxed, by design) — if a DDF-sourced subject's subtype string (e.g. `"Industrial"`, `"Vacant Land"`) doesn't exist verbatim in VOW's vocabulary for that board, comps will silently come back empty rather than erroring. Not yet mapped/reconciled between the two vocabularies.
+- **DDF's `Latitude`/`Longitude` are populated (VOW's essentially never are) — and this surfaced a latent bug.** `getSoldComps`'s geo-radius branch builds an Ampre filter directly on `Latitude`/`Longitude`, which the live Ampre API rejects outright (`HTTP 400: Field 'Latitude' not found in query options filter`). Because VOW listings never populate these fields, that branch was never actually exercised before. `normalizeDdfProperty` deliberately nulls out `latitude`/`longitude` to route DDF subjects through the same (working) `CityRegion`/postal-FSA comps fallback VOW subjects use — this avoids the bug rather than fixing it. The underlying Ampre geo-filter bug is still latent in `core/vow-query.js` and would resurface if VOW itself ever starts populating coordinates.
+
 ## 4. Disclaimer text
 
 Single source of truth: `generateDisclaimer()` and `getPrivacyPolicyUrl()` in `core/compliance.js`, served via `GET /api/disclaimer` and rendered once in the UI footer. See [3.7](#37-valuation-disclaimers) for the current text and the privacy-link caveat.
@@ -79,7 +91,7 @@ Single source of truth: `generateDisclaimer()` and `getPrivacyPolicyUrl()` in `c
 
 The following describes each body's general role at a high level, based on general knowledge — **not** verified against their current published rules in this session (a prior request to do that live research was stopped before completion). Do not treat anything below as a citation.
 
-- **CREA** (Canadian Real Estate Association) — national association; owns the REALTOR® trademark and operates national data-sharing infrastructure (DDF) among member boards.
+- **CREA** (Canadian Real Estate Association) — national association; owns the REALTOR® trademark and operates national data-sharing infrastructure (DDF) among member boards. Mosaic now actually queries DDF as a fallback data source (see [3.10](#310-ddf-fallback-data-source)) — the permitted-use terms of Mosaic's specific DDF access agreement have not been reviewed here, same caveat as the Ampre/VOW agreement below.
 - **OREA** (Ontario Real Estate Association) — provincial association for Ontario REALTORS®; education, standard forms, and advocacy.
 - **TRREB** (Toronto Regional Real Estate Board) / local board — operates the MLS system and VOW/data feed rules governing what a subscriber may query and redisplay.
 - **RECO** (Real Estate Council of Ontario) — the actual regulator, administering REBBA 2002 (Real Estate and Business Brokers Act) and registrant conduct rules, including non-solicitation and no-guarantee norms.
@@ -95,6 +107,9 @@ The following describes each body's general role at a high level, based on gener
 - **Compliance logs are process stdout only** — not persisted, not queryable, no retention policy of their own. Needs a real logging/audit destination before this is relied on for compliance evidence.
 - **`propertySearch.js` and `comps.js` don't apply tiering** (see [Section 2](#2-data-access-tiers)).
 - **Fair housing and power-of-sale guardrails are prompt-level instructions to Claude, not hard filters.** An LLM can be prompted around; nothing in code currently verifies Claude actually complied on a given response (`validateSolicitation` only checks the solicitation pattern list, not fair-housing or power-of-sale compliance).
+- **The DDF vendor agreement's permitted-use terms have not been reviewed** — same gap as the Ampre/TRREB agreement above, now also applicable to `core/ddf-query.js`. Whether DDF data may be passed to a third-party AI model, cached, or blended with VOW data in the way Mosaic does needs direct review.
+- **`getSoldComps`'s geo-radius branch has a live bug** (Ampre rejects `Latitude`/`Longitude` as filter fields — see [3.10](#310-ddf-fallback-data-source)) that was never triggered before because VOW never populates coordinates. Currently avoided by nulling out DDF's coordinates before they reach `getSoldComps`, not fixed at the source.
+- **`PropertySubType` vocabulary is not reconciled between VOW and DDF** — a DDF-sourced subject's subtype may not match any VOW listing's subtype string, silently zeroing out sold comps for that subject rather than erroring (see [3.10](#310-ddf-fallback-data-source)).
 
 ## 7. Implementation reference
 
@@ -105,3 +120,4 @@ The following describes each body's general role at a high level, based on gener
 | Solicitation heuristic | `core/compliance.js` — `validateSolicitation` |
 | System prompt guardrails | `core/claude-analysis.js` — `SYSTEM_PROMPT` |
 | Tier enforcement, disclaimer append, compliance logging | `routes/chat.js` |
+| DDF fallback search (active listings, boards without VOW approval) | `core/ddf-query.js` — `searchByAddressDdf` |

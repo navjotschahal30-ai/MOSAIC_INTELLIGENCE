@@ -93,6 +93,7 @@ function formatProperty(p) {
     p.possessionType || p.possessionDate ? `Possession: ${p.possessionType || 'n/a'}${p.possessionDate ? ` (${p.possessionDate})` : ''}` : null,
     p.zoning ? `Zoning: ${p.zoning}` : null,
     p.remarks ? `Remarks: ${p.remarks}` : null,
+    p.source === 'ddf' ? `Data source: realtor.ca DDF national feed${p.boardName ? ` (originating board: ${p.boardName})` : ''} — a narrower field set than our primary MLS feed; fields not listed above (rental items, possession, condo corp #, exclusions, etc.) are not available for this listing and should be reported as not in the data rather than guessed.` : null,
   ].filter(Boolean).join('\n');
 }
 
