@@ -79,7 +79,12 @@ router.post('/', async (req, res) => {
     const isFirstTurn = !Array.isArray(history) || history.length === 0;
     const showComps = isFirstTurn || COMPS_INTENT_RE.test(question);
 
-    res.json({ answer, subject: filtered.subject, comps: showComps ? filtered.comps : undefined, userType });
+    res.json({
+      answer,
+      subject: isFirstTurn ? filtered.subject : undefined,
+      comps: showComps ? filtered.comps : undefined,
+      userType,
+    });
   } catch (err) {
     console.error('[chat] error:', err.message);
     res.status(502).json({ error: 'Chat request failed', detail: err.message });
