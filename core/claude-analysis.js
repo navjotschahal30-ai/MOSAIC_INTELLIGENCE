@@ -45,6 +45,13 @@ function formatMoney(n) {
   return n != null ? `$${Number(n).toLocaleString('en-CA')}` : 'n/a';
 }
 
+// Yes/no MLS fields come back as booleans (or null when the field was simply
+// never populated) — null should read as unknown, not as a false "No".
+function formatYesNo(v) {
+  if (v == null) return 'n/a';
+  return v ? 'Yes' : 'No';
+}
+
 function formatProperty(p) {
   if (!p) return 'No subject property data available.';
   return [
@@ -54,8 +61,37 @@ function formatProperty(p) {
     `List price: ${formatMoney(p.listPrice)}`,
     p.closePrice ? `Sold price: ${formatMoney(p.closePrice)} (closed ${p.closeDate})` : null,
     `Beds/Baths: ${p.beds ?? 'n/a'} / ${p.baths ?? 'n/a'}`,
-    `Sqft: ${p.sqft ?? 'n/a'}`,
+    `Sqft: ${p.sqft ?? 'n/a'}${p.livingAreaRange ? ` (range: ${p.livingAreaRange})` : ''}`,
     `Type: ${p.propertySubType || p.propertyType || 'n/a'}`,
+    `Year built: ${p.yearBuilt ?? 'n/a'}${p.approxAge ? ` (approx. age bucket: ${p.approxAge})` : ''}`,
+    `Lot: ${p.lotWidth ?? '?'} x ${p.lotDepth ?? '?'} ft${p.lotSizeArea ? `, ${p.lotSizeArea} ${p.lotSizeUnits || ''}`.trimEnd() : ''}${p.lotSizeRangeAcres ? ` (range: ${p.lotSizeRangeAcres})` : ''}${p.lotShape ? `, shape: ${p.lotShape}` : ''}${p.lotFeatures ? `, features: ${p.lotFeatures}` : ''}`,
+    `Basement: ${p.basement || 'n/a'}${p.basementFinished != null ? ` (finished: ${formatYesNo(p.basementFinished)})` : ''}`,
+    `Roof: ${p.roof || 'n/a'} — MLS does not track roof/shingle age as its own field; only answer on shingle age if the remarks happen to mention it, otherwise say it isn't in the data`,
+    p.foundationDetails ? `Foundation: ${p.foundationDetails}` : null,
+    p.constructionMaterials ? `Construction materials: ${p.constructionMaterials}` : null,
+    p.exteriorFeatures ? `Exterior features: ${p.exteriorFeatures}` : null,
+    `Heating: ${p.heatType || 'n/a'}${p.heatSource ? ` (source: ${p.heatSource})` : ''}`,
+    `Cooling: ${p.cooling || 'n/a'}`,
+    `Fireplace: ${formatYesNo(p.fireplace)}${p.fireplacesTotal ? ` (${p.fireplacesTotal})` : ''}`,
+    p.poolFeatures ? `Pool: ${p.poolFeatures}` : null,
+    p.waterfront != null ? `Waterfront: ${formatYesNo(p.waterfront)}` : null,
+    p.sewer ? `Sewer: ${p.sewer}` : null,
+    `Water: ${p.water || 'n/a'}${p.waterSource ? ` (source: ${p.waterSource})` : ''}`,
+    p.utilities ? `Utilities: ${p.utilities}` : null,
+    p.uffi ? `UFFI (urea formaldehyde foam insulation): ${p.uffi}` : null,
+    `Parking (garage/drive/total): ${p.garageParkingSpaces ?? 'n/a'} / ${p.driveParkingSpaces ?? 'n/a'} / ${p.totalParkingSpaces ?? 'n/a'}${p.parkingFeatures ? ` — ${p.parkingFeatures}` : ''}`,
+    `Kitchens: ${p.kitchensTotal ?? 'n/a'}`,
+    p.unitNumber ? `Unit number: ${p.unitNumber}` : null,
+    p.condoCorpNumber ? `Condo corporation number: ${p.condoCorpNumber}` : null,
+    p.locker ? `Locker: ${p.locker}${p.lockerNumber ? ` (#${p.lockerNumber})` : ''}` : null,
+    p.condoFee != null ? `Condo/maintenance fee: ${formatMoney(p.condoFee)}${p.condoFeeFrequency ? `/${p.condoFeeFrequency}` : ''}${p.condoFeeIncludes ? ` — includes: ${p.condoFeeIncludes}` : ''}` : null,
+    p.taxAnnualAmount != null ? `Annual property tax: ${formatMoney(p.taxAnnualAmount)}${p.taxYear ? ` (${p.taxYear})` : ''}` : null,
+    p.inclusions ? `Inclusions: ${p.inclusions}` : null,
+    p.exclusions ? `Exclusions: ${p.exclusions}` : null,
+    p.rentalItems ? `Rental items (not owned, monthly cost applies): ${p.rentalItems}${p.rentalItemsMonthlyCost ? ` — cost: ${p.rentalItemsMonthlyCost}` : ''}` : null,
+    p.remarksExtras ? `Extras: ${p.remarksExtras}` : null,
+    p.possessionType || p.possessionDate ? `Possession: ${p.possessionType || 'n/a'}${p.possessionDate ? ` (${p.possessionDate})` : ''}` : null,
+    p.zoning ? `Zoning: ${p.zoning}` : null,
     p.remarks ? `Remarks: ${p.remarks}` : null,
   ].filter(Boolean).join('\n');
 }
