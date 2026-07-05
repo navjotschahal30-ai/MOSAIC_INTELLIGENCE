@@ -192,6 +192,7 @@ function normalizeProperty(l) {
     lockerNumber: l.LockerNumber || null,
     remarks: l.PublicRemarks || null,
     brokerage: l.ListOfficeName || null,
+    source: 'vow',
   };
 }
 
