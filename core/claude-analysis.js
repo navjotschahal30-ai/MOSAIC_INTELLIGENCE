@@ -104,19 +104,39 @@ function formatComps(comps) {
     .join('\n');
 }
 
-function buildPropertyDataBlock({ subject, comps, userType }) {
-  return `[ACCESS TIER: ${userType}]\n\n[PROPERTY DATA]\n\nSubject property:\n${formatProperty(subject)}\n\nSold comparables:\n${formatComps(comps)}`;
+// `amenities` comes from core/places-query.js (Google Places, proximity-only —
+// never school catchment/boundary data). The instruction at the end is load-
+// bearing: without it, Claude tends to present "nearest school" as if it were
+// the assigned/zoned school, which is not something proximity data can tell you.
+function formatAmenities(amenities) {
+  if (!amenities) return null;
+  const { schools, parks, other } = amenities;
+  const listLine = (items) => (items && items.length
+    ? items.map((p) => `${p.name}${p.distanceKm != null ? ` (${p.distanceKm} km)` : ''}`).join(', ')
+    : 'none found nearby');
+  return [
+    'Nearby amenities (Google Places, straight-line distance — NOT school catchment/boundary data):',
+    `Schools: ${listLine(schools)}`,
+    `Parks: ${listLine(parks)}`,
+    `Other (transit, groceries, pharmacy, restaurants): ${listLine(other)}`,
+    'These are the nearest schools by distance only, not necessarily the school this address is actually zoned for. If asked which school a child would attend, say the exact assigned school requires checking with the local school board (or the Ontario school locator at ontario.ca) rather than assuming based on proximity.',
+  ].join('\n');
+}
+
+function buildPropertyDataBlock({ subject, comps, amenities, userType }) {
+  const amenitiesBlock = formatAmenities(amenities);
+  return `[ACCESS TIER: ${userType}]\n\n[PROPERTY DATA]\n\nSubject property:\n${formatProperty(subject)}\n\nSold comparables:\n${formatComps(comps)}${amenitiesBlock ? `\n\n${amenitiesBlock}` : ''}`;
 }
 
 /**
  * Answer a question about a property using Claude Sonnet, grounded in VOW data.
- * @param {{ subject: Object|null, comps: Array<Object>, question: string, history?: Array<{role:string, content:string}>, userType?: 'client'|'realtor' }} params
+ * @param {{ subject: Object|null, comps: Array<Object>, amenities: Object|null, question: string, history?: Array<{role:string, content:string}>, userType?: 'client'|'realtor' }} params
  * @returns {Promise<string>}
  */
-export async function answerPropertyQuestion({ subject, comps, question, history = [], userType = 'client' }) {
+export async function answerPropertyQuestion({ subject, comps, amenities = null, question, history = [], userType = 'client' }) {
   const messages = [
     ...history,
-    { role: 'user', content: `${buildPropertyDataBlock({ subject, comps, userType })}\n\nQuestion: ${question}` },
+    { role: 'user', content: `${buildPropertyDataBlock({ subject, comps, amenities, userType })}\n\nQuestion: ${question}` },
   ];
 
   const response = await client.messages.create({

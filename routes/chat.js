@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { searchByAddress, getSoldComps } from '../core/vow-query.js';
 import { searchByAddressDdf } from '../core/ddf-query.js';
+import { getNearbyAmenities } from '../core/places-query.js';
 import { answerPropertyQuestion, curateComps } from '../core/claude-analysis.js';
 import { filterClientData, filterRealtorData, validateSolicitation } from '../core/compliance.js';
 
@@ -11,6 +12,11 @@ const COMP_LIMIT = 5;
 // or when the user is actually asking/refining around comps — not on every
 // unrelated follow-up question.
 const COMPS_INTENT_RE = /\b(comps?|comparables?|comparable sales?|sold (price|homes?|properties)|similar (home|propert|listing|sale)|other (listing|propert|sale|home)s?)\b/i;
+
+// Same on-topic-or-first-turn gating as comps, applied to the Google Places
+// nearby-amenities lookup (it's a paid API call — don't fire it on every
+// unrelated follow-up).
+const NEIGHBOURHOOD_INTENT_RE = /\b(school|schools|park|parks|neighbourhood|neighborhood|nearby|amenit(y|ies)|transit|grocery|groceries|restaurant|walkab|community)\b/i;
 
 const router = Router();
 
@@ -69,9 +75,18 @@ router.post('/', async (req, res) => {
       ? filterRealtorData({ subject, comps: curatedComps })
       : filterClientData({ subject, comps: curatedComps });
 
+    const isFirstTurn = !Array.isArray(history) || history.length === 0;
+    const showComps = isFirstTurn || COMPS_INTENT_RE.test(question);
+    const showAmenities = isFirstTurn || NEIGHBOURHOOD_INTENT_RE.test(question);
+
+    const amenities = showAmenities && filtered.subject?.latitude != null && filtered.subject?.longitude != null
+      ? await getNearbyAmenities(filtered.subject.latitude, filtered.subject.longitude)
+      : null;
+
     const answer = await answerPropertyQuestion({
       subject: filtered.subject,
       comps: filtered.comps,
+      amenities,
       question: question.trim(),
       history: Array.isArray(history) ? history : [],
       userType,
@@ -88,13 +103,11 @@ router.post('/', async (req, res) => {
       solicitationFlags: solicitationCheck.flags,
     }));
 
-    const isFirstTurn = !Array.isArray(history) || history.length === 0;
-    const showComps = isFirstTurn || COMPS_INTENT_RE.test(question);
-
     res.json({
       answer,
       subject: isFirstTurn ? filtered.subject : undefined,
       comps: showComps ? filtered.comps : undefined,
+      amenities: showAmenities ? amenities : undefined,
       userType,
     });
   } catch (err) {

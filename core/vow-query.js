@@ -304,13 +304,6 @@ export async function fuzzyMatchAddress(partial, city) {
   return suggestions;
 }
 
-/** Rough degree offsets for a radius in km, used to build a lat/long bounding box. */
-function radiusToDegrees(radiusKm, latitude) {
-  const latDelta = radiusKm / 111;
-  const lonDelta = radiusKm / (111 * Math.cos((latitude * Math.PI) / 180) || 1);
-  return { latDelta, lonDelta };
-}
-
 function daysAgoIso(days) {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - days);
@@ -359,11 +352,11 @@ function inSetFilter(field, values) {
  * instead of numeric ranges.
  *
  * @param {Object|null} subject  a resolved property from searchByAddress (or null)
- * @param {{ radiusKm?: number, daysBack?: number, limit?: number }} [opts]
+ * @param {{ daysBack?: number, limit?: number }} [opts]
  * @returns {Promise<{ subject: Object|null, comps: Array<Object>, relaxationSteps: string[] }>}
  */
 export async function getSoldComps(subject, opts = {}) {
-  const { radiusKm = 1.5, daysBack = 90, limit = 5 } = opts;
+  const { daysBack = 90, limit = 5 } = opts;
 
   // Nothing to compare against — comps are always relative to a resolved subject.
   if (!subject) return { subject: null, comps: [], relaxationSteps: [] };
@@ -373,19 +366,19 @@ export async function getSoldComps(subject, opts = {}) {
   if (subject.propertySubType) hardBase.push(`PropertySubType eq '${escapeODataString(subject.propertySubType)}'`);
 
   // Neighbourhood constraint — hard requirement, never widened to city-wide.
-  // Priority: real coordinates (radius) > CityRegion (GTA/Toronto boards
-  // reliably populate this, e.g. "Bay Street Corridor") > postal FSA prefix
-  // (fallback for boards like Kitchener-Waterloo where CityRegion is null).
+  // Priority: CityRegion (GTA/Toronto boards reliably populate this, e.g.
+  // "Bay Street Corridor") > postal FSA prefix (fallback for boards like
+  // Kitchener-Waterloo where CityRegion is null).
+  //
+  // Latitude/Longitude are NOT used as a server-side filter here even when
+  // populated (DDF subjects do have real coordinates) — confirmed against
+  // the live Ampre API that it rejects Latitude/Longitude as filter fields
+  // outright (HTTP 400: "Field 'Latitude' not found in query options
+  // filter"). A client-side distance-ranked pass over the CityRegion/FSA
+  // pool (using each candidate's own returned Latitude/Longitude) would be
+  // the correct upgrade here, not attempted yet.
   let geoParts = null;
-  if (subject.latitude != null && subject.longitude != null) {
-    const { latDelta, lonDelta } = radiusToDegrees(radiusKm, subject.latitude);
-    geoParts = [
-      `Latitude ge ${subject.latitude - latDelta}`,
-      `Latitude le ${subject.latitude + latDelta}`,
-      `Longitude ge ${subject.longitude - lonDelta}`,
-      `Longitude le ${subject.longitude + lonDelta}`,
-    ];
-  } else if (subject.cityRegion) {
+  if (subject.cityRegion) {
     geoParts = [`CityRegion eq '${escapeODataString(subject.cityRegion)}'`];
     if (subject.city) geoParts.push(`City eq '${escapeODataString(subject.city)}'`);
   } else {

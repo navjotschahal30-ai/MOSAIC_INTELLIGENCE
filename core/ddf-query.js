@@ -112,16 +112,12 @@ function normalizeDdfProperty(l) {
     cityRegion: l.CityRegion || null,
     province: l.StateOrProvince || null,
     postalCode: l.PostalCode || null,
-    // Deliberately not passing through DDF's real Latitude/Longitude: VOW's
-    // getSoldComps() has a geo-radius branch keyed on lat/long that filters
-    // the *VOW* sold feed by coordinates — untested in practice because VOW
-    // itself never populates them, and confirmed broken against the live
-    // Ampre API (rejects Latitude as a filter field: HTTP 400 "Field
-    // 'Latitude' not found in query options filter"). Leaving these null
-    // routes DDF-sourced subjects through the same CityRegion/postal-FSA
-    // comps fallback VOW subjects already use, per "sold comps: no changes."
-    latitude: null,
-    longitude: null,
+    // DDF reliably populates real coordinates (unlike VOW) — used for
+    // nearby-amenities lookups (core/places-query.js). getSoldComps() no
+    // longer has a lat/long-based filter branch (it 400'd against the live
+    // Ampre API regardless of source), so these are safe to pass through.
+    latitude: l.Latitude ?? null,
+    longitude: l.Longitude ?? null,
     status: l.StandardStatus || null,
     transactionType: null,
     listPrice: Number(l.ListPrice) || null,
