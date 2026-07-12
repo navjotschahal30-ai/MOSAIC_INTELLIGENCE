@@ -1,6 +1,20 @@
 import { Router } from 'express';
+import { geocodeAddress } from '../core/amenities.js';
 
 const router = Router();
+
+// GET /api/geocode/forward?address=X — resolves a street address to lat/lon via
+// Nominatim. Needed because Ampre VOW essentially never populates its own
+// Latitude/Longitude fields (see legal-compliance.md 3.10) — DDF-sourced
+// listings do carry coordinates directly and don't need this.
+router.get('/forward', async (req, res) => {
+  const { address } = req.query;
+  if (!address || typeof address !== 'string' || !address.trim()) {
+    return res.status(400).json({ error: 'address is required' });
+  }
+  const coords = await geocodeAddress(address.trim());
+  res.json(coords || { latitude: null, longitude: null });
+});
 
 // GET /api/geocode/reverse?lat=X&lon=Y — proxies OpenStreetMap Nominatim so the
 // browser doesn't call a third party directly (CORS + usage-policy reasons —

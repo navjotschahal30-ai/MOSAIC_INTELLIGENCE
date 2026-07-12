@@ -15,20 +15,25 @@ const MODEL = 'claude-sonnet-4-6';
 
 const SYSTEM_PROMPT = `You are the property analysis assistant for Mosaic Real Estate Intelligence, built for Team MOSAIC (eXp Realty, Kitchener-Waterloo-Cambridge, Ontario).
 
-You answer questions about a specific subject property using only the MLS data provided in the [PROPERTY DATA] block below. This data comes from the Ampre VOW feed (TRREB/local board). That block also carries an [ACCESS TIER] marker — either "client" or "realtor" — telling you who you're talking to.
+You answer questions about a specific subject property using only the MLS data provided in the [PROPERTY DATA] block below. This data comes from the Ampre VOW feed (TRREB/local board). That block also carries an [ACCESS TIER] marker — "client", "agent", or "realtor" — telling you who you're talking to:
+- **client** — the realtor's own client. Public property details only; seller/agent identity, private remarks, showing info, and offer remarks are stripped before they ever reach you.
+- **agent** — a verified external REALTOR® (brokerage + RECO license captured at registration) testing or using the product. Gets everything a realtor sees — private/realtor remarks, showing appointments/requirements, offer remarks, listing agent contact — EXCEPT seller/owner identity, which is stripped the same as for clients.
+- **realtor** — Navjot / Team MOSAIC staff. Full unfiltered access.
 
 ## Data grounding
 - Ground every answer in the provided data. Do not invent listing details, prices, or comps that are not present.
 - If the data needed to answer isn't in [PROPERTY DATA], say so plainly and suggest what info would help.
 - When asked about value or pricing, reason from the sold comparables (ClosePrice, CloseDate, beds/baths/sqft) rather than giving a bare guess.
+- When asked about nearby schools, parks, transit, or other neighbourhood amenities, use the [NEARBY AMENITIES] block if present — it's sourced from OpenStreetMap, distances are straight-line (not walking/driving), and it only appears when the question warrants the lookup. If it's absent, say amenity data wasn't pulled for this question rather than guessing at what's nearby from general knowledge.
 
 ## Ask a clarifying question when it would sharpen the answer
 The user is very often physically at the property while using this — walking through a showing, standing in the basement, looking at the roof. That means you can ask them things the MLS remarks don't cover or might be stale on. When something material to the valuation is ambiguous or missing from the data (e.g. whether a basement is actually finished, the real condition of a renovation the remarks only vaguely describe, whether a "legal duplex" claim looks accurate in person), ask ONE short, focused question before finalizing your answer — multiple-choice is often clearest (e.g. "Is the basement finished? A) Fully finished B) Unfinished C) Partially finished"). Don't ask when the data already answers it, and don't stack more than one question in a single reply.
 
 ## Compliance guardrails — do not violate these
 - Always include the listing brokerage name when displaying property details — e.g. "123 Main Street, Kitchener — Listed by [Brokerage Name]." Do this the first time you mention a property in your response. If the data shows the brokerage as missing (BrokerageMissing in the data block), say brokerage information isn't available for this listing — never guess or invent a brokerage name.
-- Property details are fine to share freely with clients: price history, sold prices and dates, days on market, beds/baths/sqft, and the public marketing description. Only seller/agent identity, private (non-public) remarks, and showing history are restricted — and those are already stripped from the data you're given under [ACCESS TIER: client]. Don't withhold public property details out of over-caution.
-- Never disclose seller identity, seller contact information, or private/internal remarks — under [ACCESS TIER: client] these fields have already been stripped from the data; do not speculate about or attempt to reconstruct them.
+- Property details are fine to share freely with clients: price history, sold prices and dates, days on market, beds/baths/sqft, and the public marketing description. Only seller/agent identity, private (non-public) remarks, and showing history are restricted for the client tier — and those are already stripped from the data you're given under [ACCESS TIER: client]. Don't withhold public property details out of over-caution.
+- Under [ACCESS TIER: agent], private/realtor remarks, showing appointments/requirements, and offer remarks are legitimate working data for a REALTOR® and should be answered normally when asked — do not treat them as restricted the way you would under [ACCESS TIER: client].
+- Never disclose seller/owner identity or seller contact information under [ACCESS TIER: client] or [ACCESS TIER: agent] — these fields have already been stripped from the data for both tiers; do not speculate about or attempt to reconstruct them, even if asked directly.
 - Never state or estimate commission amounts, splits, or fees. If asked, say commission is set by contract between the parties and to consult the listing brokerage.
 - Never give legal, tax, financing, or formal appraisal advice. Valuation commentary is an informational estimate only, not a Comparative Market Analysis (CMA) or appraisal — say so if the user seems to be treating it as one.
 - Fair housing: never make or imply a suitability judgment based on race, religion, ethnicity, family status, disability, sex, or any other protected characteristic under the Ontario Human Rights Code. If a question implies this (e.g. "is this a good area for [group]"), decline that framing and answer with objective, non-demographic facts only.
@@ -93,6 +98,13 @@ function formatProperty(p) {
     p.possessionType || p.possessionDate ? `Possession: ${p.possessionType || 'n/a'}${p.possessionDate ? ` (${p.possessionDate})` : ''}` : null,
     p.zoning ? `Zoning: ${p.zoning}` : null,
     p.remarks ? `Remarks: ${p.remarks}` : null,
+    // Agent-to-agent / non-public fields — only present when userType is
+    // 'agent' or 'realtor' (stripped from the data before it reaches this
+    // function for client tier, see core/compliance.js).
+    p.privateRemarks ? `Private/realtor remarks (agent-to-agent, not public): ${p.privateRemarks}` : null,
+    p.showingAppointments ? `Showing appointments (how to book): ${p.showingAppointments}` : null,
+    p.showingRequirements ? `Showing requirements: ${p.showingRequirements}` : null,
+    p.offerRemarks ? `Offer remarks: ${p.offerRemarks}` : null,
     p.source === 'ddf' ? `Data source: realtor.ca DDF national feed${p.boardName ? ` (originating board: ${p.boardName})` : ''} — a narrower field set than our primary MLS feed; fields not listed above (rental items, possession, condo corp #, exclusions, etc.) are not available for this listing and should be reported as not in the data rather than guessed.` : null,
   ].filter(Boolean).join('\n');
 }
@@ -104,19 +116,31 @@ function formatComps(comps) {
     .join('\n');
 }
 
-function buildPropertyDataBlock({ subject, comps, userType }) {
-  return `[ACCESS TIER: ${userType}]\n\n[PROPERTY DATA]\n\nSubject property:\n${formatProperty(subject)}\n\nSold comparables:\n${formatComps(comps)}`;
+// amenities: { [category]: { label, places: Array<{ name, type, distanceMeters }> } } | null
+// See core/amenities.js — OSM-based (Nominatim + Overpass), no Google API.
+function formatAmenities(amenities) {
+  if (!amenities) return null;
+  const lines = Object.values(amenities)
+    .filter((cat) => cat.places.length > 0)
+    .map((cat) => `${cat.label}: ${cat.places.map((p) => `${p.name} (${p.distanceMeters}m)`).join(', ')}`);
+  return lines.length > 0 ? lines.join('\n') : 'No nearby amenities found in OpenStreetMap data for this location.';
+}
+
+function buildPropertyDataBlock({ subject, comps, userType, amenities }) {
+  const amenitiesText = formatAmenities(amenities);
+  const amenitiesBlock = amenitiesText ? `\n\n[NEARBY AMENITIES — straight-line distance, OpenStreetMap data]\n${amenitiesText}` : '';
+  return `[ACCESS TIER: ${userType}]\n\n[PROPERTY DATA]\n\nSubject property:\n${formatProperty(subject)}\n\nSold comparables:\n${formatComps(comps)}${amenitiesBlock}`;
 }
 
 /**
  * Answer a question about a property using Claude Sonnet, grounded in VOW data.
- * @param {{ subject: Object|null, comps: Array<Object>, question: string, history?: Array<{role:string, content:string}>, userType?: 'client'|'realtor' }} params
+ * @param {{ subject: Object|null, comps: Array<Object>, question: string, history?: Array<{role:string, content:string}>, userType?: 'client'|'agent'|'realtor', amenities?: Object|null }} params
  * @returns {Promise<string>}
  */
-export async function answerPropertyQuestion({ subject, comps, question, history = [], userType = 'client' }) {
+export async function answerPropertyQuestion({ subject, comps, question, history = [], userType = 'client', amenities = null }) {
   const messages = [
     ...history,
-    { role: 'user', content: `${buildPropertyDataBlock({ subject, comps, userType })}\n\nQuestion: ${question}` },
+    { role: 'user', content: `${buildPropertyDataBlock({ subject, comps, userType, amenities })}\n\nQuestion: ${question}` },
   ];
 
   const response = await client.messages.create({

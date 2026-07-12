@@ -1,5 +1,5 @@
 /**
- * Compliance layer for client-facing vs realtor-facing data access.
+ * Compliance layer for the three data-access tiers: client, agent, realtor.
  * See /legal-compliance.md for the full rule set and rationale — this module
  * implements deliberately conservative defaults pending legal review.
  */
@@ -17,11 +17,19 @@
 // tiers. See ensureBrokerage() below, which re-asserts it regardless.
 const CLIENT_STRIP_FIELDS = [
   'ownerName', 'sellerName', 'privateRemarks', 'agentRemarks',
-  'showingInstructions', 'showingHistory', 'showingRequirements',
+  'showingInstructions', 'showingHistory', 'showingRequirements', 'showingAppointments',
+  'offerRemarks',
   'listAgentName', 'listAgentEmail', 'listAgentPhone',
   'coListAgentName', 'coListAgentEmail', 'coListAgentPhone',
   'occupantType',
 ];
+
+// Stripped for the 'agent' tier — verified external REALTORS® (brokerage name +
+// RECO license captured at registration, see routes/auth.js) testing the
+// product. Only seller/owner identity is restricted; everything else
+// (private/realtor remarks, showing instructions, offer remarks, listing
+// agent contact) is a normal part of an agent's job and is not held back.
+const AGENT_STRIP_FIELDS = ['ownerName', 'sellerName'];
 
 function stripFields(obj, fields) {
   if (!obj) return obj;
@@ -53,6 +61,21 @@ export function filterClientData({ subject, comps }) {
   return {
     subject: ensureBrokerage(stripFields(subject, CLIENT_STRIP_FIELDS)),
     comps: (comps || []).map((c) => ensureBrokerage(stripFields(c, CLIENT_STRIP_FIELDS))),
+  };
+}
+
+/**
+ * Agent-tier view: full data except seller/owner identity. For verified
+ * external REALTORS® (brokerage + RECO license captured at registration)
+ * testing the product — not Team MOSAIC staff, so this is deliberately one
+ * notch below the realtor tier, not equal to it.
+ * @param {{ subject: Object|null, comps: Array<Object> }} data
+ * @returns {{ subject: Object|null, comps: Array<Object> }}
+ */
+export function filterAgentData({ subject, comps }) {
+  return {
+    subject: ensureBrokerage(stripFields(subject, AGENT_STRIP_FIELDS)),
+    comps: (comps || []).map((c) => ensureBrokerage(stripFields(c, AGENT_STRIP_FIELDS))),
   };
 }
 

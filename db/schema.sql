@@ -20,13 +20,19 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS agents (
   id                SERIAL PRIMARY KEY,
   user_id           INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-  company_name      TEXT,
+  company_name      TEXT,           -- brokerage name; required for external_agent, see routes/auth.js
+  reco_license      TEXT,           -- RECO registrant license number; required for external_agent, see routes/auth.js
   custom_branding   JSONB,          -- { logoUrl, primaryColor, accentColor, ... } — set later, not this phase
   vow_token_encrypted TEXT,         -- AES-256-GCM ciphertext, see core/crypto.js — never store plaintext
   stripe_id         TEXT,
   paid_tier         TEXT NOT NULL DEFAULT 'free' CHECK (paid_tier IN ('free', 'basic', 'pro')),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- schema.sql is applied via CREATE TABLE IF NOT EXISTS on every boot (see
+-- server.js) — that alone doesn't add columns to an already-existing table,
+-- so new columns need an explicit idempotent ALTER TABLE below.
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS reco_license TEXT;
 
 CREATE TABLE IF NOT EXISTS subscriptions (
   id             SERIAL PRIMARY KEY,

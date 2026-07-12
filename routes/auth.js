@@ -10,9 +10,13 @@ function publicUser(row) {
   return { id: row.id, email: row.email, userType: row.user_type, createdAt: row.created_at };
 }
 
-// POST /api/auth/register  { email, password, userType, privacyAgreed, companyName? }
+// POST /api/auth/register  { email, password, userType, privacyAgreed, companyName?, recoLicense? }
+// companyName (brokerage name) and recoLicense are REQUIRED for external_agent —
+// this is the identity gate for outside REALTORS® testing/using the product
+// (see legal-compliance.md Section 2, 'agent' tier). Not required for
+// team_mosaic (Navjot / Team MOSAIC staff).
 router.post('/register', async (req, res) => {
-  const { email, password, userType, privacyAgreed, companyName } = req.body || {};
+  const { email, password, userType, privacyAgreed, companyName, recoLicense } = req.body || {};
 
   if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'A valid email is required' });
@@ -25,6 +29,14 @@ router.post('/register', async (req, res) => {
   }
   if (privacyAgreed !== true) {
     return res.status(400).json({ error: 'You must accept the privacy policy to register' });
+  }
+  if (userType === 'external_agent') {
+    if (!companyName || typeof companyName !== 'string' || !companyName.trim()) {
+      return res.status(400).json({ error: 'Brokerage name is required' });
+    }
+    if (!recoLicense || typeof recoLicense !== 'string' || !recoLicense.trim()) {
+      return res.status(400).json({ error: 'RECO license number is required' });
+    }
   }
 
   let client;
@@ -50,8 +62,8 @@ router.post('/register', async (req, res) => {
     // Every user gets an agent profile — this is where per-tenant VOW token,
     // branding, and billing will live (see db/schema.sql).
     await client.query(
-      `INSERT INTO agents (user_id, company_name) VALUES ($1, $2)`,
-      [user.id, companyName || null],
+      `INSERT INTO agents (user_id, company_name, reco_license) VALUES ($1, $2, $3)`,
+      [user.id, companyName?.trim() || null, recoLicense?.trim() || null],
     );
 
     await client.query('COMMIT');
@@ -100,7 +112,7 @@ router.post('/logout', (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.user_type, u.created_at, a.id AS agent_id, a.company_name, a.paid_tier
+      `SELECT u.id, u.email, u.user_type, u.created_at, a.id AS agent_id, a.company_name, a.reco_license, a.paid_tier
        FROM users u LEFT JOIN agents a ON a.user_id = u.id
        WHERE u.id = $1`,
       [req.user.id],
@@ -114,7 +126,9 @@ router.get('/me', requireAuth, async (req, res) => {
         email: row.email,
         userType: row.user_type,
         createdAt: row.created_at,
-        agent: row.agent_id ? { id: row.agent_id, companyName: row.company_name, paidTier: row.paid_tier } : null,
+        agent: row.agent_id
+          ? { id: row.agent_id, companyName: row.company_name, recoLicense: row.reco_license, paidTier: row.paid_tier }
+          : null,
       },
     });
   } catch (err) {

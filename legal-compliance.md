@@ -8,18 +8,19 @@ This document describes the compliance controls implemented in the Mosaic Real E
 
 ## 2. Data access tiers
 
-Every `/api/chat` request carries a `userType` of `client` or `realtor`. Unset or invalid values default to `client` (fail closed — the more restrictive tier).
+**Updated 2026-07-11:** `/api/chat` now derives its tier server-side from the authenticated session (`req.user.userType`, set by `requireAuth` from the signed session cookie — see `core/auth.js`) rather than trusting a client-supplied field. This closes the "anyone can pass `userType: realtor`" gap described lower in this section (kept below, struck through in spirit, for history).
 
-| Tier | Who | Data access |
-|---|---|---|
-| `client` | The realtor's client, using the chat UI directly | Full property details — address, status, list/sold price, close date, days on market, beds, baths, sqft, lot depth, year built, property type, and the public marketing description. **No** seller/agent identity or contact info, private (non-public) remarks, or showing history (see [3.1](#31-seller-privacy)). |
-| `realtor` | Navjot / Team MOSAIC staff | Full unfiltered data, including any private remarks. |
+| Tier | Who | Registration requirement | Data access |
+|---|---|---|---|
+| `client` | The realtor's client, using the chat UI directly | None — this tier is the fail-closed default for any request without a recognized session | Full property details — address, status, list/sold price, close date, days on market, beds, baths, sqft, lot depth, year built, property type, and the public marketing description. **No** seller/agent identity or contact info, private (non-public) remarks, showing info, or offer remarks (see [3.1](#31-seller-privacy)). |
+| `agent` | An external REALTOR® testing or using the product (`user_type = 'external_agent'`) | Brokerage name + RECO license number, both required at registration (see [3.11](#311-agent-identity-gate-brokerage--reco-license)) | Everything a realtor sees — private/realtor remarks, showing appointments/requirements, offer remarks, listing agent contact — **except** seller/owner identity, which is stripped the same as for clients. |
+| `realtor` | Navjot / Team MOSAIC staff (`user_type = 'team_mosaic'`) | None | Full unfiltered data, including seller/owner identity if it's ever present in the source data. |
 
-Model: what a client can see is closer to a password-protected consumer site (HouseSigma-style) than a fully public one — property history, comps, and details are fine once the user is inside an authenticated, consented session; only seller/agent PII and private-side data stay realtor-only. See the auth gap below — Mosaic doesn't have that authenticated session yet.
+Model: what a client (or agent) can see is closer to a password-protected consumer site (HouseSigma-style) than a fully public one — property history, comps, and details are fine once the user is inside an authenticated, consented session; only seller PII stays realtor-only (and, for agents, seller PII specifically — everything else an agent would normally need for their own client work is available).
 
-Enforced in `core/compliance.js` (`filterClientData`, `filterRealtorData`), called from `routes/chat.js` before data reaches Claude. The tier is also passed into the Claude system prompt as an `[ACCESS TIER]` marker so the model doesn't attempt to reconstruct stripped information from general knowledge.
+Enforced in `core/compliance.js` (`filterClientData`, `filterAgentData`, `filterRealtorData`), called from `routes/chat.js` before data reaches Claude. The tier is also passed into the Claude system prompt as an `[ACCESS TIER]` marker so the model doesn't attempt to reconstruct stripped information from general knowledge.
 
-**Known gap — no authentication exists yet.** The `client`/`realtor` tiering here is a data-shape distinction only; there is no login, no password protection, and no consent capture anywhere in Mosaic today. `userType` is just a request body field — anyone who can reach `/api/chat` can pass `userType: "realtor"` and get full access. Before this is used with real clients, per the "password-protected platform = OK to show more data" model, Mosaic needs an actual authenticated session (even a simple one) that derives `userType` server-side from who's logged in, rather than trusting a client-supplied field.
+**Remaining gap — RECO license is captured, not verified.** Registration requires a RECO license number for `external_agent` accounts, but nothing in the code cross-checks it against RECO's public registrant search (reco.on.ca) or any other registry. It's a self-reported identity gate (raises the bar above "anyone with the link," and creates an audit trail of who claimed what), not proof of an active, real registration. A real verification step (RECO registry lookup, or manual approval before an `external_agent` account is activated) would need to be added before this is relied on as an actual credential check.
 
 **Known gap:** `routes/propertySearch.js` and `routes/comps.js` do not yet apply tiering — they return full unfiltered VOW data regardless of caller. The current frontend (`ChatBox.jsx`) only calls `/api/chat`, so this isn't reachable through the UI today, but it's an inconsistency in the API surface that should be closed before those endpoints are used directly by anything client-facing.
 
@@ -27,13 +28,15 @@ Enforced in `core/compliance.js` (`filterClientData`, `filterRealtorData`), call
 
 ### 3.1 Seller privacy
 
-`filterClientData` strips a denylist of fields — owner/seller name, private remarks, showing instructions/history, listing and co-listing agent name/email/phone, occupant type — before data reaches the client tier or Claude. The denylist is intentionally broader than what `core/vow-query.js` currently selects from Ampre, so adding a new field later doesn't silently leak it to clients.
+`filterClientData` strips a denylist of fields — owner/seller name, private remarks, showing instructions/history/appointments/requirements, offer remarks, listing and co-listing agent name/email/phone, occupant type — before data reaches the client tier or Claude. The denylist is intentionally broader than what `core/vow-query.js` currently selects from Ampre, so adding a new field later doesn't silently leak it to clients.
 
-Public marketing remarks (`PublicRemarks`, mapped to `remarks`) are **not** stripped — they're already publicly visible on any MLS listing site, and property description is explicitly in-scope for the client tier (price history, comps, and property details including description are fine to show once a client is in an authenticated, consented session — see the "no authentication exists yet" gap in [Section 2](#2-data-access-tiers)).
+`filterAgentData` strips a much narrower denylist — `ownerName`/`sellerName` only (`AGENT_STRIP_FIELDS` in `core/compliance.js`). Everything else client-tier hides (private remarks, showing info, offer remarks, listing agent contact) is normal working data for a REALTOR® and is passed through unfiltered for the `agent` tier.
+
+Public marketing remarks (`PublicRemarks`, mapped to `remarks`) are **not** stripped for any tier — they're already publicly visible on any MLS listing site, and property description is explicitly in-scope even for the client tier (price history, comps, and property details including description are fine to show once a user is in an authenticated, consented session).
 
 ### 3.2 Agent remarks protection
 
-`PrivateRemarks` (agent-to-agent notes, not currently fetched by `core/vow-query.js`) and any future private/internal-only field are stripped by the same `CLIENT_STRIP_FIELDS` denylist for the client tier, full for realtor tier. This is distinct from 3.1's public remarks, which clients can see.
+**Updated 2026-07-11:** `PrivateRemarks`, `ShowingAppointments`, `ShowingRequirements`, and `OfferRemarks` are now fetched by `core/vow-query.js` (field names and types confirmed against the live Ampre `$metadata`) and surfaced to Claude via `formatProperty` in `core/claude-analysis.js`. They're stripped by `CLIENT_STRIP_FIELDS` for the client tier, and passed through in full for both `agent` and `realtor` tiers. This is distinct from 3.1's public remarks, which all tiers can see.
 
 ### 3.3 Commission disclosure
 
@@ -83,6 +86,22 @@ Important asymmetries with the primary VOW feed, confirmed against DDF's live `$
 - **`PropertySubType` vocabulary may not match between feeds.** `getSoldComps` hard-filters sold comps by `PropertySubType` (never relaxed, by design) — if a DDF-sourced subject's subtype string (e.g. `"Industrial"`, `"Vacant Land"`) doesn't exist verbatim in VOW's vocabulary for that board, comps will silently come back empty rather than erroring. Not yet mapped/reconciled between the two vocabularies.
 - **DDF's `Latitude`/`Longitude` are populated (VOW's essentially never are) — and this surfaced a latent bug.** `getSoldComps`'s geo-radius branch builds an Ampre filter directly on `Latitude`/`Longitude`, which the live Ampre API rejects outright (`HTTP 400: Field 'Latitude' not found in query options filter`). Because VOW listings never populate these fields, that branch was never actually exercised before. `normalizeDdfProperty` deliberately nulls out `latitude`/`longitude` to route DDF subjects through the same (working) `CityRegion`/postal-FSA comps fallback VOW subjects use — this avoids the bug rather than fixing it. The underlying Ampre geo-filter bug is still latent in `core/vow-query.js` and would resurface if VOW itself ever starts populating coordinates.
 
+### 3.11 Agent identity gate (brokerage + RECO license)
+
+Added 2026-07-11 for the first round of external testing. `POST /api/auth/register` requires `companyName` (brokerage name) and `recoLicense` (RECO registrant license number) when `userType = 'external_agent'` — both are rejected with a 400 if missing or blank. Stored on the `agents` row (`company_name`, `reco_license` columns, `db/schema.sql`) and returned by `GET /api/auth/me`. Not required for `team_mosaic` accounts.
+
+This is a self-reported identity capture, not a verified credential check — see the "RECO license is captured, not verified" gap in [Section 2](#2-data-access-tiers).
+
+### 3.12 Neighbourhood amenities (schools, parks, transit) — no Google API
+
+Added 2026-07-11. `core/amenities.js` resolves an address to coordinates via Nominatim (`geocodeAddress` — same free, no-key OpenStreetMap geocoder `routes/geocode.js` already used for reverse geocoding) and queries the Overpass API (`getNearbyAmenities`, also free, no key) for nearby schools, parks/playgrounds, transit stops, and grocery/healthcare within a radius, sorted nearest-first by straight-line distance.
+
+- Standalone endpoint: `GET /api/amenities?address=...` (`routes/amenities.js`).
+- Wired into chat: `routes/chat.js` runs the lookup only when the question matches `AMENITIES_INTENT_RE` (school/park/transit/grocery/neighbourhood-type questions) — not on every turn — and passes the result into `answerPropertyQuestion` as a `[NEARBY AMENITIES]` block Claude is instructed to ground its answer in.
+- VOW subjects essentially never have their own `Latitude`/`Longitude` populated (see [3.10](#310-ddf-fallback-data-source)); the address is geocoded via Nominatim in that case. DDF-sourced subjects have their coordinates deliberately nulled for an unrelated reason (the `getSoldComps` geo-radius bug, also in 3.10) — the amenities lookup uses the same address-geocoding fallback for both feeds rather than depending on either one's raw coordinates.
+- No Google Maps/Places API key is used or required anywhere in this feature.
+- Both Nominatim and the public Overpass instance (`overpass-api.de`) are shared free infrastructure with informal rate limits, fine at this app's current volume — self-hosting Overpass or moving to a paid provider would be the scaling path if usage grows materially.
+
 ## 4. Disclaimer text
 
 Single source of truth: `generateDisclaimer()` and `getPrivacyPolicyUrl()` in `core/compliance.js`, served via `GET /api/disclaimer` and rendered once in the UI footer. See [3.7](#37-valuation-disclaimers) for the current text and the privacy-link caveat.
@@ -99,7 +118,7 @@ The following describes each body's general role at a high level, based on gener
 
 ## 6. Known gaps / required legal verification
 
-- **No authentication/consent layer exists.** `userType` is a client-supplied request field with no login behind it — see [Section 2](#2-data-access-tiers). This is the single biggest gap before Mosaic can be used with real clients under the "password-protected platform, user consents" model.
+- **RECO license numbers are captured at registration but not verified** against RECO's public registrant search or any other registry — see [3.11](#311-agent-identity-gate-brokerage--reco-license) and [Section 2](#2-data-access-tiers). Someone could type a fabricated brokerage/license and still get `agent`-tier access (seller identity is still hidden, but private/showing/offer remarks would not be). Fine for a small, invite-only testing cohort; needs a real verification step before wider release.
 - **No live regulatory research was performed for this build.** All rules above are implemented from general Canadian real estate industry best practices, not from verified current text of CREA/OREA/TRREB/RECO publications or the Ampre vendor agreement. Every row needs a citation check before this is treated as authoritative.
 - **The actual signed Ampre/TRREB (or local board) vendor agreement has not been reviewed.** It is the actual source of truth for what a VOW subscriber may store, cache, redisplay, or pass to a third-party AI model (Claude/Anthropic) — this needs direct review, likely by whoever holds that agreement (Navjot / the brokerage).
 - **Sending listing data to Claude (a third-party AI API) may itself require disclosure or fall under specific vendor-agreement restrictions** on redistributing MLS data to third parties/subprocessors. Not evaluated here.
@@ -115,9 +134,11 @@ The following describes each body's general role at a high level, based on gener
 
 | Concern | File |
 |---|---|
-| Data filtering (client/realtor tiers) | `core/compliance.js` — `filterClientData`, `filterRealtorData` |
+| Data filtering (client/agent/realtor tiers) | `core/compliance.js` — `filterClientData`, `filterAgentData`, `filterRealtorData` |
 | Disclaimer text | `core/compliance.js` — `generateDisclaimer` |
 | Solicitation heuristic | `core/compliance.js` — `validateSolicitation` |
 | System prompt guardrails | `core/claude-analysis.js` — `SYSTEM_PROMPT` |
-| Tier enforcement, disclaimer append, compliance logging | `routes/chat.js` |
+| Tier enforcement (session-derived), disclaimer append, compliance logging, amenities-intent detection | `routes/chat.js` |
+| Auth (register/login/session), agent identity gate | `core/auth.js`, `routes/auth.js` |
 | DDF fallback search (active listings, boards without VOW approval) | `core/ddf-query.js` — `searchByAddressDdf` |
+| Nearby amenities (schools/parks/transit, OSM-based, no Google API) | `core/amenities.js`, `routes/amenities.js` |

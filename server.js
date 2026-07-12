@@ -10,6 +10,7 @@ import compsRoute from './routes/comps.js';
 import chatRoute from './routes/chat.js';
 import disclaimerRoute from './routes/disclaimer.js';
 import geocodeRoute from './routes/geocode.js';
+import amenitiesRoute from './routes/amenities.js';
 import autocompleteRoute from './routes/autocomplete.js';
 import authRoute from './routes/auth.js';
 import { pool, testConnection } from './db/pool.js';
@@ -59,6 +60,7 @@ app.use('/api/comps', compsRoute);
 app.use('/api/chat', chatRoute);
 app.use('/api/disclaimer', disclaimerRoute);
 app.use('/api/geocode', geocodeRoute);
+app.use('/api/amenities', amenitiesRoute);
 app.use('/api/autocomplete', autocompleteRoute);
 app.use('/api/auth', authRoute);
 

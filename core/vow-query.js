@@ -35,6 +35,13 @@ const DETAIL_SELECT = [
   // Possession, zoning, condo unit identifiers.
   'PossessionDate', 'PossessionType', 'Zoning', 'CondoCorpNumber', 'ApartmentNumber', 'UnitNumber', 'Locker', 'LockerNumber',
   'PublicRemarks', 'ListOfficeName',
+  // Agent-to-agent / non-public fields — realtor-tier and agent-tier only
+  // (stripped for client tier by CLIENT_STRIP_FIELDS in core/compliance.js).
+  // Confirmed against live Ampre $metadata: PrivateRemarks (Edm.String,
+  // max 4000), ShowingAppointments (Edm.String, max 250 — how to book a
+  // showing), ShowingRequirements (Collection(Edm.String) — lookup values,
+  // joined like Roof/Basement), OfferRemarks (Edm.String, max 500).
+  'PrivateRemarks', 'ShowingAppointments', 'ShowingRequirements', 'OfferRemarks',
 ].join(',');
 
 const COMP_SELECT = [
@@ -192,6 +199,12 @@ function normalizeProperty(l) {
     lockerNumber: l.LockerNumber || null,
     remarks: l.PublicRemarks || null,
     brokerage: l.ListOfficeName || null,
+    // Agent-to-agent / non-public — stripped for client tier, kept for
+    // agent/realtor tiers (see core/compliance.js).
+    privateRemarks: l.PrivateRemarks || null,
+    showingAppointments: l.ShowingAppointments || null,
+    showingRequirements: joinList(l.ShowingRequirements),
+    offerRemarks: l.OfferRemarks || null,
     source: 'vow',
   };
 }

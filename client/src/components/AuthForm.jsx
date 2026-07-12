@@ -18,6 +18,7 @@ export default function AuthForm({ onAuthenticated }) {
   const [password, setPassword] = useState('');
   const [userType, setUserType] = useState('external_agent');
   const [companyName, setCompanyName] = useState('');
+  const [recoLicense, setRecoLicense] = useState('');
   const [privacyAgreed, setPrivacyAgreed] = useState(false);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -34,7 +35,7 @@ export default function AuthForm({ onAuthenticated }) {
     setSubmitting(true);
     try {
       const { user } = mode === 'register'
-        ? await postJson('/api/auth/register', { email, password, userType, privacyAgreed, companyName })
+        ? await postJson('/api/auth/register', { email, password, userType, privacyAgreed, companyName, recoLicense })
         : await postJson('/api/auth/login', { email, password });
       onAuthenticated(user);
     } catch (err) {
@@ -81,10 +82,26 @@ export default function AuthForm({ onAuthenticated }) {
                 </select>
               </label>
 
-              <label>
-                Company name (optional)
-                <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-              </label>
+              {userType === 'external_agent' && (
+                <>
+                  <label>
+                    Brokerage name
+                    <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} required autoComplete="organization" />
+                  </label>
+
+                  <label>
+                    RECO license no.
+                    <input type="text" value={recoLicense} onChange={(e) => setRecoLicense(e.target.value)} required />
+                  </label>
+                </>
+              )}
+
+              {userType === 'team_mosaic' && (
+                <label>
+                  Company name (optional)
+                  <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+                </label>
+              )}
 
               <label className="auth-checkbox">
                 <input type="checkbox" checked={privacyAgreed} onChange={(e) => setPrivacyAgreed(e.target.checked)} />
