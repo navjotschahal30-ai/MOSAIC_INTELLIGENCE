@@ -21,6 +21,12 @@ services:
           property: connectionString
       - key: NODE_ENV
         value: production
+      # NODE_ENV=production makes npm skip devDependencies during the build
+      # step too (unlike Railway/Nixpacks, Render injects service env vars
+      # into the build) — vite lives in client/package.json's devDependencies,
+      # so without this override `npm run build` fails with "vite: not found".
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
       - key: CORS_ORIGINS
         sync: false
       - key: VOW_API_KEY
