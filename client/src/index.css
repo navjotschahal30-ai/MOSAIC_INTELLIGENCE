@@ -315,6 +315,61 @@ body {
   border-bottom: none;
 }
 
+/* ── Similar active listings (inline in Claude bubble) ─────────────── */
+
+.similar-listings-wrap {
+  margin-top: 0.6rem;
+}
+
+.similar-listings-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.similar-listings-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.similar-listing-card {
+  flex: 1 1 160px;
+  min-width: 140px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  padding: 0.6rem 0.7rem;
+}
+
+.similar-listing-address {
+  display: block;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--navy);
+  text-decoration: none;
+}
+
+a.similar-listing-address:hover {
+  text-decoration: underline;
+}
+
+.similar-listing-price {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-dark);
+  margin-top: 0.2rem;
+}
+
+.similar-listing-stats {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
 /* ── Input row + autocomplete ───────────────────────────────────────── */
 
 .chatbox-input-wrap {
