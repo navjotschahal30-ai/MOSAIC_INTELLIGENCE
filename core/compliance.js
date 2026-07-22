@@ -54,13 +54,14 @@ function ensureBrokerage(obj) {
  * Client-tier view: strips seller/agent identity, private remarks, and showing
  * history. Public property details (including marketing description) pass through.
  * The listing brokerage is always included (see ensureBrokerage).
- * @param {{ subject: Object|null, comps: Array<Object> }} data
- * @returns {{ subject: Object|null, comps: Array<Object> }}
+ * @param {{ subject: Object|null, comps: Array<Object>, similarListings?: Array<Object> }} data
+ * @returns {{ subject: Object|null, comps: Array<Object>, similarListings: Array<Object> }}
  */
-export function filterClientData({ subject, comps }) {
+export function filterClientData({ subject, comps, similarListings }) {
   return {
     subject: ensureBrokerage(stripFields(subject, CLIENT_STRIP_FIELDS)),
     comps: (comps || []).map((c) => ensureBrokerage(stripFields(c, CLIENT_STRIP_FIELDS))),
+    similarListings: (similarListings || []).map((l) => ensureBrokerage(stripFields(l, CLIENT_STRIP_FIELDS))),
   };
 }
 
@@ -69,26 +70,28 @@ export function filterClientData({ subject, comps }) {
  * external REALTORS® (brokerage + RECO license captured at registration)
  * testing the product — not Team MOSAIC staff, so this is deliberately one
  * notch below the realtor tier, not equal to it.
- * @param {{ subject: Object|null, comps: Array<Object> }} data
- * @returns {{ subject: Object|null, comps: Array<Object> }}
+ * @param {{ subject: Object|null, comps: Array<Object>, similarListings?: Array<Object> }} data
+ * @returns {{ subject: Object|null, comps: Array<Object>, similarListings: Array<Object> }}
  */
-export function filterAgentData({ subject, comps }) {
+export function filterAgentData({ subject, comps, similarListings }) {
   return {
     subject: ensureBrokerage(stripFields(subject, AGENT_STRIP_FIELDS)),
     comps: (comps || []).map((c) => ensureBrokerage(stripFields(c, AGENT_STRIP_FIELDS))),
+    similarListings: (similarListings || []).map((l) => ensureBrokerage(stripFields(l, AGENT_STRIP_FIELDS))),
   };
 }
 
 /**
  * Realtor-tier view: full, unfiltered data access. The listing brokerage is
  * always included (see ensureBrokerage).
- * @param {{ subject: Object|null, comps: Array<Object> }} data
- * @returns {{ subject: Object|null, comps: Array<Object> }}
+ * @param {{ subject: Object|null, comps: Array<Object>, similarListings?: Array<Object> }} data
+ * @returns {{ subject: Object|null, comps: Array<Object>, similarListings: Array<Object> }}
  */
-export function filterRealtorData({ subject, comps }) {
+export function filterRealtorData({ subject, comps, similarListings }) {
   return {
     subject: ensureBrokerage(subject),
     comps: (comps || []).map(ensureBrokerage),
+    similarListings: (similarListings || []).map(ensureBrokerage),
   };
 }
 
