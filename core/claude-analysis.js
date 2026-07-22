@@ -25,6 +25,7 @@ You answer questions about a specific subject property using only the MLS data p
 - If the data needed to answer isn't in [PROPERTY DATA], say so plainly and suggest what info would help.
 - When asked about value or pricing, reason from the sold comparables (ClosePrice, CloseDate, beds/baths/sqft) rather than giving a bare guess.
 - When asked about nearby schools, parks, transit, or other neighbourhood amenities, use the [NEARBY AMENITIES] block if present — it's sourced from OpenStreetMap, distances are straight-line (not walking/driving), and it only appears when the question warrants the lookup. If it's absent, say amenity data wasn't pulled for this question rather than guessing at what's nearby from general knowledge.
+- When asked for similar/other listings or alternatives, use the [SIMILAR ACTIVE LISTINGS] block if present — these are currently-for-sale properties, not sold comparables, and are already shown to the user as clickable links in the UI, so don't repeat the raw address/price list; just briefly characterize the options in a sentence or two (e.g. "there are 2 similar homes on the market nearby, one a bit larger and pricier"). If the block is absent or empty, say nothing similar turned up nearby rather than inventing options.
 
 ## Ask a clarifying question when it would sharpen the answer
 The user is very often physically at the property while using this — walking through a showing, standing in the basement, looking at the roof. That means you can ask them things the MLS remarks don't cover or might be stale on. When something material to the valuation is ambiguous or missing from the data (e.g. whether a basement is actually finished, the real condition of a renovation the remarks only vaguely describe, whether a "legal duplex" claim looks accurate in person), ask ONE short, focused question before finalizing your answer — multiple-choice is often clearest (e.g. "Is the basement finished? A) Fully finished B) Unfinished C) Partially finished"). Don't ask when the data already answers it, and don't stack more than one question in a single reply.
@@ -116,6 +117,16 @@ function formatComps(comps) {
     .join('\n');
 }
 
+// Active listings, unlike sold comps, carry a real live link (resolved via
+// Lofty — see core/lofty-listing-link.js) since they're still on the market
+// and Lofty's public site actually indexes them.
+function formatSimilarListings(similarListings) {
+  if (!similarListings || similarListings.length === 0) return null;
+  return similarListings
+    .map((l) => `- ${l.address}${l.city ? `, ${l.city}` : ''} | ${formatMoney(l.listPrice)} | ${l.beds ?? '?'}bd/${l.baths ?? '?'}ba | size ${l.livingAreaRange || l.sqft || '?'} | Brokerage: ${l.brokerage || 'MISSING'}${l.url ? ` | Link: ${l.url}` : ''}`)
+    .join('\n');
+}
+
 // amenities: { [category]: { label, places: Array<{ name, type, distanceMeters }> } } | null
 // See core/amenities.js — OSM-based (Nominatim + Overpass), no Google API.
 function formatAmenities(amenities) {
@@ -126,21 +137,23 @@ function formatAmenities(amenities) {
   return lines.length > 0 ? lines.join('\n') : 'No nearby amenities found in OpenStreetMap data for this location.';
 }
 
-function buildPropertyDataBlock({ subject, comps, userType, amenities }) {
+function buildPropertyDataBlock({ subject, comps, similarListings, userType, amenities }) {
   const amenitiesText = formatAmenities(amenities);
   const amenitiesBlock = amenitiesText ? `\n\n[NEARBY AMENITIES — straight-line distance, OpenStreetMap data]\n${amenitiesText}` : '';
-  return `[ACCESS TIER: ${userType}]\n\n[PROPERTY DATA]\n\nSubject property:\n${formatProperty(subject)}\n\nSold comparables:\n${formatComps(comps)}${amenitiesBlock}`;
+  const similarText = formatSimilarListings(similarListings);
+  const similarBlock = similarText ? `\n\n[SIMILAR ACTIVE LISTINGS — currently for sale, not sold comparables]\n${similarText}` : '';
+  return `[ACCESS TIER: ${userType}]\n\n[PROPERTY DATA]\n\nSubject property:\n${formatProperty(subject)}\n\nSold comparables:\n${formatComps(comps)}${similarBlock}${amenitiesBlock}`;
 }
 
 /**
  * Answer a question about a property using Claude Sonnet, grounded in VOW data.
- * @param {{ subject: Object|null, comps: Array<Object>, question: string, history?: Array<{role:string, content:string}>, userType?: 'client'|'agent'|'realtor', amenities?: Object|null }} params
+ * @param {{ subject: Object|null, comps: Array<Object>, similarListings?: Array<Object>, question: string, history?: Array<{role:string, content:string}>, userType?: 'client'|'agent'|'realtor', amenities?: Object|null }} params
  * @returns {Promise<string>}
  */
-export async function answerPropertyQuestion({ subject, comps, question, history = [], userType = 'client', amenities = null }) {
+export async function answerPropertyQuestion({ subject, comps, similarListings = null, question, history = [], userType = 'client', amenities = null }) {
   const messages = [
     ...history,
-    { role: 'user', content: `${buildPropertyDataBlock({ subject, comps, userType, amenities })}\n\nQuestion: ${question}` },
+    { role: 'user', content: `${buildPropertyDataBlock({ subject, comps, similarListings, userType, amenities })}\n\nQuestion: ${question}` },
   ];
 
   const response = await client.messages.create({

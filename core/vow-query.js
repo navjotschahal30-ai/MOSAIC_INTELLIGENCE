@@ -375,6 +375,31 @@ function inSetFilter(field, values) {
  * @param {{ radiusKm?: number, daysBack?: number, limit?: number }} [opts]
  * @returns {Promise<{ subject: Object|null, comps: Array<Object>, relaxationSteps: string[] }>}
  */
+// Neighbourhood constraint — hard requirement, never widened to city-wide.
+// Priority: real coordinates (radius) > CityRegion (GTA/Toronto boards
+// reliably populate this, e.g. "Bay Street Corridor") > postal FSA prefix
+// (fallback for boards like Kitchener-Waterloo where CityRegion is null).
+// Returns null when none of the three signals are available — callers
+// should return no results rather than guessing at a city-wide fallback.
+function buildGeoFilter(subject, radiusKm) {
+  if (subject.latitude != null && subject.longitude != null) {
+    const { latDelta, lonDelta } = radiusToDegrees(radiusKm, subject.latitude);
+    return [
+      `Latitude ge ${subject.latitude - latDelta}`,
+      `Latitude le ${subject.latitude + latDelta}`,
+      `Longitude ge ${subject.longitude - lonDelta}`,
+      `Longitude le ${subject.longitude + lonDelta}`,
+    ];
+  }
+  if (subject.cityRegion) {
+    const parts = [`CityRegion eq '${escapeODataString(subject.cityRegion)}'`];
+    if (subject.city) parts.push(`City eq '${escapeODataString(subject.city)}'`);
+    return parts;
+  }
+  const fsa = postalFsa(subject.postalCode);
+  return fsa ? [`startswith(PostalCode,'${escapeODataString(fsa)}')`] : null;
+}
+
 export async function getSoldComps(subject, opts = {}) {
   const { radiusKm = 1.5, daysBack = 90, limit = 5 } = opts;
 
@@ -385,26 +410,7 @@ export async function getSoldComps(subject, opts = {}) {
   if (subject.propertyType) hardBase.push(`PropertyType eq '${escapeODataString(subject.propertyType)}'`);
   if (subject.propertySubType) hardBase.push(`PropertySubType eq '${escapeODataString(subject.propertySubType)}'`);
 
-  // Neighbourhood constraint — hard requirement, never widened to city-wide.
-  // Priority: real coordinates (radius) > CityRegion (GTA/Toronto boards
-  // reliably populate this, e.g. "Bay Street Corridor") > postal FSA prefix
-  // (fallback for boards like Kitchener-Waterloo where CityRegion is null).
-  let geoParts = null;
-  if (subject.latitude != null && subject.longitude != null) {
-    const { latDelta, lonDelta } = radiusToDegrees(radiusKm, subject.latitude);
-    geoParts = [
-      `Latitude ge ${subject.latitude - latDelta}`,
-      `Latitude le ${subject.latitude + latDelta}`,
-      `Longitude ge ${subject.longitude - lonDelta}`,
-      `Longitude le ${subject.longitude + lonDelta}`,
-    ];
-  } else if (subject.cityRegion) {
-    geoParts = [`CityRegion eq '${escapeODataString(subject.cityRegion)}'`];
-    if (subject.city) geoParts.push(`City eq '${escapeODataString(subject.city)}'`);
-  } else {
-    const fsa = postalFsa(subject.postalCode);
-    if (fsa) geoParts = [`startswith(PostalCode,'${escapeODataString(fsa)}')`];
-  }
+  const geoParts = buildGeoFilter(subject, radiusKm);
 
   // No coordinates, no CityRegion, no postal code — can't confirm the
   // neighbourhood, so don't guess by falling back to the whole city.
@@ -481,4 +487,80 @@ export async function getSoldComps(subject, opts = {}) {
     .slice(0, poolTarget);
 
   return { subject, comps, relaxationSteps };
+}
+
+/**
+ * Currently-for-sale listings similar to the subject — a distinct data source
+ * from getSoldComps (closed sales only). Used for "what else is out there"
+ * questions, not valuation, so the relaxation ladder is shorter: it widens
+ * beds/baths and the search radius rather than a sold-specific recency window.
+ * @param {Object} subject
+ * @param {{ radiusKm?: number, limit?: number }} [opts]
+ * @returns {Promise<{ subject: Object, listings: Array<Object>, relaxationSteps: string[] }>}
+ */
+export async function getSimilarActiveListings(subject, opts = {}) {
+  const { radiusKm = 2, limit = 3 } = opts;
+
+  if (!subject) return { subject: null, listings: [], relaxationSteps: [] };
+
+  const hardBase = [`StandardStatus eq 'Active'`, `TransactionType eq 'For Sale'`];
+  if (subject.propertyType) hardBase.push(`PropertyType eq '${escapeODataString(subject.propertyType)}'`);
+  if (subject.propertySubType) hardBase.push(`PropertySubType eq '${escapeODataString(subject.propertySubType)}'`);
+  // Never suggest the subject property itself as a "similar" alternative.
+  if (subject.id) hardBase.push(`ListingKey ne '${escapeODataString(subject.id)}'`);
+
+  const geoParts = buildGeoFilter(subject, radiusKm);
+  if (!geoParts) return { subject, listings: [], relaxationSteps: ['no neighbourhood signal available — returned no listings rather than guessing'] };
+
+  // Mutable relaxation state, widened step by step until enough listings are found.
+  const state = {
+    geoParts,
+    bedsRadius: subject.beds != null ? 0 : null,
+    bathsRadius: subject.baths != null ? 0 : null,
+  };
+
+  function buildFilter() {
+    const parts = [...hardBase, ...state.geoParts];
+    if (state.bedsRadius != null) {
+      parts.push(`BedroomsTotal ge ${subject.beds - state.bedsRadius}`, `BedroomsTotal le ${subject.beds + state.bedsRadius}`);
+    }
+    if (state.bathsRadius != null) {
+      parts.push(`BathroomsTotalInteger ge ${subject.baths - state.bathsRadius}`, `BathroomsTotalInteger le ${subject.baths + state.bathsRadius}`);
+    }
+    return parts.join(' and ');
+  }
+
+  const poolTarget = limit + 2;
+  const relaxationLadder = [
+    { note: 'exact match on beds and baths', apply: () => {} },
+    { note: 'widened beds to ±1', apply: () => { if (state.bedsRadius != null) state.bedsRadius = 1; } },
+    { note: 'widened baths to ±1', apply: () => { if (state.bathsRadius != null) state.bathsRadius = 1; } },
+    { note: `widened search radius to ${radiusKm * 2.5}km`, apply: () => { state.geoParts = buildGeoFilter(subject, radiusKm * 2.5) || state.geoParts; } },
+    { note: 'dropped beds/baths constraints (kept type, subtype, and neighbourhood)', apply: () => { state.bedsRadius = null; state.bathsRadius = null; } },
+  ];
+
+  const pool = new Map(); // dedupe by ListingKey across steps
+  const relaxationSteps = [];
+
+  for (const step of relaxationLadder) {
+    step.apply();
+    const filter = buildFilter();
+    const records = await queryAmpre(filter, COMP_SELECT, { top: Math.max(poolTarget * 2, 10), orderby: 'ModificationTimestamp desc' });
+    for (const r of records) {
+      if (!pool.has(r.ListingKey)) pool.set(r.ListingKey, r);
+    }
+    relaxationSteps.push(`${step.note} → ${pool.size} candidate(s) so far`);
+    if (pool.size >= poolTarget) break;
+  }
+
+  const subjectPrice = subject.listPrice ?? null;
+  const listings = Array.from(pool.values())
+    .map(normalizeComp)
+    .sort((a, b) => {
+      if (subjectPrice == null) return (a.listPrice ?? 0) - (b.listPrice ?? 0);
+      return Math.abs((a.listPrice ?? subjectPrice) - subjectPrice) - Math.abs((b.listPrice ?? subjectPrice) - subjectPrice);
+    })
+    .slice(0, limit);
+
+  return { subject, listings, relaxationSteps };
 }

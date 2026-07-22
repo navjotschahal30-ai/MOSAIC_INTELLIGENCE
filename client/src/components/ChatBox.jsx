@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import PropertyCard from './PropertyCard.jsx';
 import CompsTable from './CompsTable.jsx';
+import SimilarListings from './SimilarListings.jsx';
 import BookCallModal from './BookCallModal.jsx';
 import { detectCity } from '../utils/geolocation.js';
 
@@ -105,7 +106,7 @@ export default function ChatBox({ user, onLogout }) {
     setSending(true);
 
     try {
-      const { answer, subject, comps } = await postJson('/api/chat', {
+      const { answer, subject, comps, similarListings } = await postJson('/api/chat', {
         address: isFirstTurn ? text : address,
         question: isFirstTurn ? OVERVIEW_QUESTION : text,
         history,
@@ -115,7 +116,7 @@ export default function ChatBox({ user, onLogout }) {
 
       setMessages((prev) => [
         ...prev,
-        { id: crypto.randomUUID(), role: 'assistant', text: answer, subject, comps },
+        { id: crypto.randomUUID(), role: 'assistant', text: answer, subject, comps, similarListings },
       ]);
     } catch (err) {
       setMessages((prev) => [
@@ -180,6 +181,7 @@ export default function ChatBox({ user, onLogout }) {
             <div className={`msg-bubble ${m.role}${m.isError ? ' error' : ''}`}>
               {m.subject && <PropertyCard property={m.subject} />}
               {m.comps && <CompsTable comps={m.comps} />}
+              {m.similarListings && <SimilarListings listings={m.similarListings} />}
               <p className="msg-text">{m.text}</p>
             </div>
           </div>
