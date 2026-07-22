@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import PropertyCard from './PropertyCard.jsx';
 import CompsTable from './CompsTable.jsx';
+import BookCallModal from './BookCallModal.jsx';
 import { detectCity } from '../utils/geolocation.js';
 
 const OVERVIEW_QUESTION = 'Give me a quick overview of this property — current status, price, and key details.';
@@ -52,6 +53,7 @@ export default function ChatBox({ user, onLogout }) {
   const [privacyUrl, setPrivacyUrl] = useState('');
   const [city, setCity] = useState('Kitchener');
   const [suggestions, setSuggestions] = useState([]);
+  const [showBookCall, setShowBookCall] = useState(false);
   const logRef = useRef(null);
   const debounceRef = useRef(null);
 
@@ -149,6 +151,9 @@ export default function ChatBox({ user, onLogout }) {
           <span>Mosaic Real Estate Intelligence</span>
         </div>
         <div className="chatbox-header-actions">
+          <button type="button" className="book-call-btn" onClick={() => setShowBookCall(true)}>
+            Book a call
+          </button>
           {address && (
             <button type="button" className="new-search-btn" onClick={handleNewSearch}>
               New search
@@ -215,6 +220,8 @@ export default function ChatBox({ user, onLogout }) {
       </div>
 
       {disclaimer && <footer className="chatbox-disclaimer">{renderDisclaimer(disclaimer, privacyUrl)}</footer>}
+
+      {showBookCall && <BookCallModal onClose={() => setShowBookCall(false)} />}
     </div>
   );
 }
