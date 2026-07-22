@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import PropertyCard from './PropertyCard.jsx';
 import CompsTable from './CompsTable.jsx';
 import SimilarListings from './SimilarListings.jsx';
+import LegalModal from './LegalModal.jsx';
 import { detectCity } from '../utils/geolocation.js';
 
 const OVERVIEW_QUESTION = 'Give me a quick overview of this property — current status, price, and key details.';
@@ -20,20 +21,6 @@ async function postJson(url, body) {
   return data;
 }
 
-// Turns the literal "privacy policy" phrase in the disclaimer into a real link.
-function renderDisclaimer(text, url) {
-  const marker = 'privacy policy';
-  const idx = text.indexOf(marker);
-  if (!url || idx === -1) return text;
-  return (
-    <>
-      {text.slice(0, idx)}
-      <a href={url} target="_blank" rel="noopener noreferrer">{marker}</a>
-      {text.slice(idx + marker.length)}
-    </>
-  );
-}
-
 // Mosaic wordmark: navy circle, coral angular "M" mark. Brand colors: #1d3c68 / #f1645f / white.
 function Logo() {
   return (
@@ -50,7 +37,9 @@ export default function ChatBox({ user, onLogout }) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [disclaimer, setDisclaimer] = useState('');
+  const [legalText, setLegalText] = useState('');
   const [privacyUrl, setPrivacyUrl] = useState('');
+  const [showLegal, setShowLegal] = useState(false);
   const [city, setCity] = useState('Kitchener');
   const [suggestions, setSuggestions] = useState([]);
   const logRef = useRef(null);
@@ -65,6 +54,7 @@ export default function ChatBox({ user, onLogout }) {
       .then((res) => res.json())
       .then((data) => {
         setDisclaimer(data.disclaimer || '');
+        setLegalText(data.legalText || '');
         setPrivacyUrl(data.privacyUrl || '');
       })
       .catch(() => {});
@@ -224,7 +214,18 @@ export default function ChatBox({ user, onLogout }) {
         </form>
       </div>
 
-      {disclaimer && <footer className="chatbox-disclaimer">{renderDisclaimer(disclaimer, privacyUrl)}</footer>}
+      {disclaimer && (
+        <footer className="chatbox-disclaimer">
+          {disclaimer}{' '}
+          <button type="button" className="legal-link" onClick={() => setShowLegal(true)}>
+            Legal
+          </button>
+        </footer>
+      )}
+
+      {showLegal && (
+        <LegalModal legalText={legalText} privacyUrl={privacyUrl} onClose={() => setShowLegal(false)} />
+      )}
     </div>
   );
 }
